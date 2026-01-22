@@ -1,7 +1,10 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
+from astrbot.api.all import *
 import time
+import asyncio
+from datetime import datetime
 import astrbot.api.message_components as Comp
 from astrbot.core.utils.session_waiter import (
     session_waiter,
@@ -9,7 +12,15 @@ from astrbot.core.utils.session_waiter import (
 )
 from .api import MoviepilotApi, EmbyApi
 
-@register("MoviepilotSubscribe", "4Nest", "MoviePilot订阅 & Emby入库查询插件", "1.2.0", "https://github.com/4Nest/astrbot_plugin_mp_sub")
+try:
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    HAS_APSCHEDULER = True
+except ImportError:
+    HAS_APSCHEDULER = False
+    logger.warning("apscheduler not found, daily report function disabled.")
+
+@register("MoviepilotSubscribe", "4Nest", "MoviePilot订阅 & Emby入库查询插件", "1.2.1", "https://github.com/i-kirito/astrbot_plugin_mpemby")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -17,7 +28,113 @@ class MyPlugin(Star):
         self.api = MoviepilotApi(config)  # MoviePilot API
         self.emby_api = EmbyApi(config)  # Emby API
         self.state = {}  # 初始化状态管理字典
+
+        # 定时任务调度器
+        self.scheduler = None
+        if HAS_APSCHEDULER and self.config.get("enable_daily_report", False):
+            self.setup_scheduler()
+
         logger.info(f"插件初始化完成，Emby配置状态: {'已配置' if self.emby_api.is_configured() else '未配置'}")
+
+    def setup_scheduler(self):
+        """配置定时任务"""
+        try:
+            report_time = self.config.get("report_time", "20:00")
+            hour, minute = report_time.split(":")
+
+            self.scheduler = AsyncIOScheduler()
+            self.scheduler.add_job(
+                self.send_daily_report,
+                CronTrigger(hour=int(hour), minute=int(minute)),
+                id="daily_report"
+            )
+            self.scheduler.start()
+            logger.info(f"已启动每日入库推送任务，时间: {report_time}")
+        except Exception as e:
+            logger.error(f"启动定时任务失败: {e}")
+
+    async def send_daily_report(self):
+        """发送每日入库简报"""
+        target_id = self.config.get("report_target_id")
+        if not target_id:
+            logger.warning("未配置推送目标ID (report_target_id)，跳过推送")
+            return
+
+        logger.info("开始执行每日入库统计推送...")
+        stats = await self.emby_api.get_today_additions_stats()
+
+        if not stats or stats.get("Total", 0) == 0:
+            logger.info("今日无新入库，跳过推送")
+            return
+
+        # 构建消息内容
+        msg = "📢 Emby 今日入库日报\n━━━━━━━━━━━━\n"
+        if stats.get("Movie", 0) > 0:
+            msg += f"🎬 电影新增：{stats['Movie']} 部\n"
+        if stats.get("Series", 0) > 0:
+            msg += f"📺 剧集新增：{stats['Series']} 部\n"
+        if stats.get("Episode", 0) > 0:
+            msg += f"🎞️ 单集新增：{stats['Episode']} 集\n"
+        msg += "━━━━━━━━━━━━"
+
+        # 发送消息 (使用 Context 的 send_message 方法)
+        # 注意：AstrBot 的主动发送 API 可能因版本而异，这里尝试使用 context.get_platform_adapter
+        # 或者直接构建 Event。但在 AstrBot 中，主动发送通常需要 adapter。
+        # 为了兼容性，这里假设 target_id 是纯数字 ID，且插件运行在主平台上。
+
+        # 尝试遍历所有 Provider 发送
+        sent = False
+        # platform_name:target_id 格式解析
+        platform_name = None
+        user_id = target_id
+
+        if ":" in target_id:
+            platform_name, user_id = target_id.split(":", 1)
+
+        try:
+            for platform in self.context.platform_manager.platforms:
+                if platform_name and platform.platform_name != platform_name:
+                    continue
+
+                # 尝试构建消息链
+                chain = [Comp.Plain(msg)]
+
+                # 尝试作为私聊发送
+                try:
+                    # 获取 adapter 实例进行发送是比较底层的做法
+                    # AstrBot 推荐使用 UnifiedMessage 发送
+                    # 这里尝试使用 platform 的接口
+                    if hasattr(platform, "send_msg"):
+                        # 尝试转换为 int (针对 QQ 等平台)
+                        try:
+                            uid = int(user_id)
+                        except:
+                            uid = user_id
+
+                        # 构造简单的 payload，具体取决于平台实现，这里尝试通用调用
+                        # 注意：不同适配器的 send_msg 参数可能不同，这是一个潜在的兼容性问题
+                        # 为了稳妥，我们尝试使用 context 的高层 API 如果有
+
+                        # 假设目标是个人
+                        await platform.send_msg(uid, chain)
+                        sent = True
+                        break
+                except Exception as e:
+                    logger.warning(f"尝试通过平台 {platform.platform_name} 发送失败: {e}")
+
+            if sent:
+                logger.info("日报推送成功")
+            else:
+                logger.error("日报推送失败：未找到合适的平台或发送失败")
+
+        except Exception as e:
+            logger.error(f"执行推送逻辑出错: {e}")
+
+    async def terminate(self):
+        """插件卸载时清理"""
+        if self.scheduler:
+            self.scheduler.shutdown()
+            logger.info("已停止定时任务")
 
     @filter.command("sub")
     async def sub(self, event: AstrMessageEvent, message: str):

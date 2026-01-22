@@ -40,5 +40,21 @@
         "type": "int",
         "default": 10,
         "hint": "入库查询返回的最大条目数"
+    },
+    "enable_daily_report": {
+        "description": "开启每日入库推送",
+        "type": "bool",
+        "default": false
+    },
+    "report_time": {
+        "description": "推送时间",
+        "type": "string",
+        "default": "20:00",
+        "hint": "格式: HH:MM"
+    },
+    "report_target_id": {
+        "description": "推送目标ID",
+        "type": "string",
+        "hint": "接收通知的用户ID或群组ID"
     }
 }

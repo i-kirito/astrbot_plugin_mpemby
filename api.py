@@ -344,6 +344,42 @@ class EmbyApi:
             logger.error(f"获取 Emby 统计信息失败: {e}")
             return stats
 
+    async def get_today_additions_stats(self) -> dict:
+        """获取今日入库统计 (从今日0点开始)"""
+        if not self.is_configured():
+            return {}
+
+        try:
+            # 获取今日0点时间 (这里简单使用本地时间字符串拼接 UTC 后缀，Emby通常能识别)
+            # 更严谨的做法是处理时区，但 Emby API 对 ISO8601 支持较好
+            now = datetime.now()
+            start_of_day = now.strftime("%Y-%m-%dT00:00:00Z")
+
+            # 查询电影、剧集、单集
+            params = f"?Recursive=true&IncludeItemTypes=Movie,Series,Episode&MinDateCreated={start_of_day}"
+
+            if self.user_id:
+                url = f"{self.base_url}/Users/{self.user_id}/Items{params}"
+            else:
+                url = f"{self.base_url}/Items{params}"
+
+            data = await self._request(url)
+
+            stats = {"Movie": 0, "Series": 0, "Episode": 0, "Total": 0}
+
+            if data and 'Items' in data:
+                stats["Total"] = len(data['Items'])
+                for item in data['Items']:
+                    itype = item.get('Type')
+                    if itype in stats:
+                        stats[itype] += 1
+
+            return stats
+
+        except Exception as e:
+            logger.error(f"获取今日入库统计失败: {e}")
+            return {}
+
     def _format_date(self, date_str: str) -> str:
         """格式化日期字符串"""
         if not date_str:
