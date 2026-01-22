@@ -1,0 +1,44 @@
+{
+    "mp_url": {
+        "description": "MoviePilotUrl",
+        "type": "string",
+        "hint": "MoviePilot地址，如 http://192.168.31.213:3000",
+        "default": "http://localhost:3000"
+    },
+    "mp_token": {
+        "description": "MoviePilotToken",
+        "type": "string"
+    },
+    "mp_username": {
+        "description": "MoviePilot用户名",
+        "type": "string",
+        "default": "admin"
+    },
+    "mp_password": {
+        "description": "MoviePilot密码",
+        "type": "string",
+        "secret": true
+    },
+    "emby_url": {
+        "description": "Emby服务器地址",
+        "type": "string",
+        "hint": "Emby服务器地址，如 http://192.168.31.213:8096",
+        "default": "http://localhost:8096"
+    },
+    "emby_api_key": {
+        "description": "Emby API Key",
+        "type": "string",
+        "hint": "在Emby后台 -> 设置 -> API密钥 中生成"
+    },
+    "emby_user_id": {
+        "description": "Emby用户ID",
+        "type": "string",
+        "hint": "用于获取最新入库，可在Emby后台用户URL中获取"
+    },
+    "emby_max_results": {
+        "description": "Emby查询结果数量",
+        "type": "int",
+        "default": 10,
+        "hint": "入库查询返回的最大条目数"
+    }
+}
