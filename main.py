@@ -53,38 +53,65 @@ class MyPlugin(Star):
         except Exception as e:
             logger.error(f"启动定时任务失败: {e}")
 
-    async def send_daily_report(self):
-        """发送每日入库简报"""
+    async def send_daily_report(self, manual_trigger: bool = False):
+        """发送每日入库简报
+
+        Args:
+            manual_trigger: 是否为手动触发（如果是，即使无数据也会发送提示）
+        """
         target_id = self.config.get("report_target_id")
         if not target_id:
-            logger.warning("未配置推送目标ID (report_target_id)，跳过推送")
+            msg = "⚠️ 未配置推送目标ID (report_target_id)，请使用 /emby推送配置 target <id> 进行设置"
+            logger.warning(msg)
+            if manual_trigger:
+                # 尝试找到来源事件进行回复比较困难，这里只打日志，
+                # 或者如果该函数被指令直接调用，指令那边已经处理了反馈
+                pass
             return
 
-        logger.info("开始执行每日入库统计推送...")
-        stats = await self.emby_api.get_today_additions_stats()
+        logger.info(f"开始执行每日入库统计推送 (手动触发: {manual_trigger})...")
+        data = await self.emby_api.get_today_additions_stats()
 
-        if not stats or stats.get("Total", 0) == 0:
-            logger.info("今日无新入库，跳过推送")
+        stats = data.get("stats", {})
+        items = data.get("items", [])
+        total = stats.get("Total", 0)
+
+        if total == 0:
+            logger.info("今日无新入库")
+            if manual_trigger:
+                # 手动触发时，发送一条“无更新”的提示
+                msg = f"📅 {datetime.now().strftime('%Y-%m-%d')}\n今日暂无新入库内容。"
+                await self._send_to_target(target_id, msg)
             return
 
         # 构建消息内容
-        msg = "📢 Emby 今日入库日报\n━━━━━━━━━━━━\n"
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        msg = f"📢 Emby 今日入库日报 ({date_str})\n"
+        msg += "━━━━━━━━━━━━\n"
+
+        # 1. 统计摘要
         if stats.get("Movie", 0) > 0:
             msg += f"🎬 电影新增：{stats['Movie']} 部\n"
         if stats.get("Series", 0) > 0:
             msg += f"📺 剧集新增：{stats['Series']} 部\n"
         if stats.get("Episode", 0) > 0:
             msg += f"🎞️ 单集新增：{stats['Episode']} 集\n"
-        msg += "━━━━━━━━━━━━"
+        msg += "━━━━━━━━━━━━\n"
 
-        # 发送消息 (使用 Context 的 send_message 方法)
-        # 注意：AstrBot 的主动发送 API 可能因版本而异，这里尝试使用 context.get_platform_adapter
-        # 或者直接构建 Event。但在 AstrBot 中，主动发送通常需要 adapter。
-        # 为了兼容性，这里假设 target_id 是纯数字 ID，且插件运行在主平台上。
+        # 2. 详情列表
+        if items:
+            msg += "📚 最近入库详情：\n"
+            for i, item_str in enumerate(items, 1):
+                msg += f"{i}. {item_str}\n"
 
-        # 尝试遍历所有 Provider 发送
+            if total > len(items):
+                msg += f"...等共 {total} 条记录"
+
+        await self._send_to_target(target_id, msg.strip())
+
+    async def _send_to_target(self, target_id: str, msg: str):
+        """发送消息到指定目标"""
         sent = False
-        # platform_name:target_id 格式解析
         platform_name = None
         user_id = target_id
 
@@ -96,26 +123,14 @@ class MyPlugin(Star):
                 if platform_name and platform.platform_name != platform_name:
                     continue
 
-                # 尝试构建消息链
                 chain = [Comp.Plain(msg)]
 
-                # 尝试作为私聊发送
                 try:
-                    # 获取 adapter 实例进行发送是比较底层的做法
-                    # AstrBot 推荐使用 UnifiedMessage 发送
-                    # 这里尝试使用 platform 的接口
                     if hasattr(platform, "send_msg"):
-                        # 尝试转换为 int (针对 QQ 等平台)
                         try:
                             uid = int(user_id)
                         except:
                             uid = user_id
-
-                        # 构造简单的 payload，具体取决于平台实现，这里尝试通用调用
-                        # 注意：不同适配器的 send_msg 参数可能不同，这是一个潜在的兼容性问题
-                        # 为了稳妥，我们尝试使用 context 的高层 API 如果有
-
-                        # 假设目标是个人
                         await platform.send_msg(uid, chain)
                         sent = True
                         break
@@ -432,11 +447,8 @@ class MyPlugin(Star):
 
         yield event.plain_result("⏳ 正在触发日报推送...")
 
-        # 强制执行推送，忽略"无更新跳过"的逻辑？通常手动触发可能希望看到结果
-        # 但复用 send_daily_report 会保留该逻辑。
-        # 如果需要强制发送即使无更新，需要修改 send_daily_report 的参数。
-        # 这里暂时保持一致逻辑。
-        await self.send_daily_report()
+        # 强制执行推送，并开启手动触发标志
+        await self.send_daily_report(manual_trigger=True)
 
         yield event.plain_result("✅ 推送逻辑执行完毕")
 

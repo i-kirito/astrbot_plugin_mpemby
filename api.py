@@ -345,18 +345,16 @@ class EmbyApi:
             return stats
 
     async def get_today_additions_stats(self) -> dict:
-        """获取今日入库统计 (从今日0点开始)"""
+        """获取今日入库统计及详情 (从今日0点开始)"""
         if not self.is_configured():
             return {}
 
         try:
-            # 获取今日0点时间 (这里简单使用本地时间字符串拼接 UTC 后缀，Emby通常能识别)
-            # 更严谨的做法是处理时区，但 Emby API 对 ISO8601 支持较好
             now = datetime.now()
             start_of_day = now.strftime("%Y-%m-%dT00:00:00Z")
 
             # 查询电影、剧集、单集
-            params = f"?Recursive=true&IncludeItemTypes=Movie,Series,Episode&MinDateCreated={start_of_day}"
+            params = f"?Recursive=true&IncludeItemTypes=Movie,Series,Episode&MinDateCreated={start_of_day}&SortBy=DateCreated&SortOrder=Descending"
 
             if self.user_id:
                 url = f"{self.base_url}/Users/{self.user_id}/Items{params}"
@@ -365,16 +363,57 @@ class EmbyApi:
 
             data = await self._request(url)
 
-            stats = {"Movie": 0, "Series": 0, "Episode": 0, "Total": 0}
+            result = {
+                "stats": {"Movie": 0, "Series": 0, "Episode": 0, "Total": 0},
+                "items": []
+            }
 
             if data and 'Items' in data:
-                stats["Total"] = len(data['Items'])
-                for item in data['Items']:
-                    itype = item.get('Type')
-                    if itype in stats:
-                        stats[itype] += 1
+                items = data['Items']
+                result["stats"]["Total"] = len(items)
 
-            return stats
+                # 统计数量
+                for item in items:
+                    itype = item.get('Type')
+                    if itype in result["stats"]:
+                        result["stats"][itype] += 1
+
+                # 获取详情列表 (只取前 15 条展示，避免消息过长)
+                # 过滤掉 Episode，除非只有 Episode，或者按 Series 分组显示
+                # 为了简单直观，这里混合显示，但优先显示 Movie 和 Series
+                # 如果是 Episode，尝试显示 SeriesName
+
+                display_items = items[:20]
+                for item in display_items:
+                    name = item.get('Name', '未知')
+                    series_name = item.get('SeriesName', '')
+                    itype = item.get('Type')
+                    year = item.get('ProductionYear', '')
+
+                    type_cn = {
+                        "Movie": "电影",
+                        "Series": "剧集",
+                        "Episode": "单集"
+                    }.get(itype, itype)
+
+                    item_str = ""
+                    if itype == "Episode" and series_name:
+                        # 如果是单集，显示 "剧集名 - 单集名"
+                        index_number = item.get('IndexNumber', '')
+                        parent_index = item.get('ParentIndexNumber', '') # 季号
+                        season_str = f"S{parent_index}" if parent_index else ""
+                        ep_str = f"E{index_number}" if index_number else ""
+                        item_str = f"📺 {series_name} {season_str}{ep_str} - {name}"
+                    elif itype == "Series":
+                        item_str = f"📺 {name} ({year})"
+                    elif itype == "Movie":
+                        item_str = f"🎬 {name} ({year})"
+                    else:
+                        item_str = f"📄 {name}"
+
+                    result["items"].append(item_str)
+
+            return result
 
         except Exception as e:
             logger.error(f"获取今日入库统计失败: {e}")
