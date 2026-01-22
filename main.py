@@ -69,7 +69,8 @@ class MyPlugin(Star):
                 msg = "⚠️ 未配置推送目标ID (report_target_id)，请使用 /emby推送配置 target <id> 进行设置"
                 logger.warning(msg)
                 if manual_trigger and event:
-                   yield event.plain_result(msg)
+                   # 修复：移除 yield，改用 await event.send
+                   await event.send(event.plain_result(msg))
                 return
 
         logger.info(f"开始执行每日入库统计推送 (手动触发: {manual_trigger})...")
