@@ -115,35 +115,68 @@ class MyPlugin(Star):
         platform_name = None
         user_id = target_id
 
+        # 解析 platform:user_id 格式
         if ":" in target_id:
             platform_name, user_id = target_id.split(":", 1)
 
+        logger.info(f"准备推送消息，目标: {target_id} (平台: {platform_name}, 用户/群: {user_id})")
+
         try:
-            for platform in self.context.platform_manager.platforms:
-                if platform_name and platform.platform_name != platform_name:
+            platforms = self.context.platform_manager.platforms
+            if not platforms:
+                logger.error("未加载任何平台适配器，无法推送")
+                return False
+
+            for platform in platforms:
+                # 如果指定了平台，跳过不匹配的
+                curr_platform_name = getattr(platform, "platform_name", str(platform))
+                if platform_name and curr_platform_name != platform_name:
                     continue
 
+                logger.debug(f"尝试通过平台推送: {curr_platform_name}")
+
+                # 构建消息链
                 chain = [Comp.Plain(msg)]
 
+                # 尝试调用发送接口
+                # 1. 尝试 platform.send_msg (通用适配器接口)
                 try:
+                    # 转换 ID 类型 (QQ 等平台通常需要 int)
+                    try:
+                        uid = int(user_id)
+                    except ValueError:
+                        uid = user_id
+
                     if hasattr(platform, "send_msg"):
-                        try:
-                            uid = int(user_id)
-                        except:
-                            uid = user_id
                         await platform.send_msg(uid, chain)
+                        logger.info(f"通过 {curr_platform_name}.send_msg 发送成功")
                         sent = True
                         break
+
+                    # 2. 尝试 aiocqhttp 风格的 send_private_msg / send_group_msg
+                    # 这需要检查 platform 内部的 bot 实例
+                    elif hasattr(platform, "bot") and hasattr(platform.bot, "send_private_msg"):
+                        # 这是一个猜测，针对某些 qq 适配器
+                        await platform.bot.send_private_msg(user_id=uid, message=msg)
+                        logger.info(f"通过 {curr_platform_name}.bot.send_private_msg 发送成功")
+                        sent = True
+                        break
+
+                    else:
+                        logger.warning(f"平台 {curr_platform_name} 没有找到兼容的发送方法 (send_msg)")
+
                 except Exception as e:
-                    logger.warning(f"尝试通过平台 {platform.platform_name} 发送失败: {e}")
+                    logger.error(f"尝试通过平台 {curr_platform_name} 发送异常: {e}")
 
             if sent:
-                logger.info("日报推送成功")
+                return True
             else:
-                logger.error("日报推送失败：未找到合适的平台或发送失败")
+                logger.error(f"遍历所有平台后仍未成功发送消息至 {target_id}")
+                return False
 
         except Exception as e:
-            logger.error(f"执行推送逻辑出错: {e}")
+            logger.error(f"执行推送逻辑致命错误: {e}")
+            return False
 
     async def terminate(self):
         """插件卸载时清理"""
