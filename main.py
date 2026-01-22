@@ -53,21 +53,24 @@ class MyPlugin(Star):
         except Exception as e:
             logger.error(f"启动定时任务失败: {e}")
 
-    async def send_daily_report(self, manual_trigger: bool = False):
+    async def send_daily_report(self, manual_trigger: bool = False, event: AstrMessageEvent = None):
         """发送每日入库简报
 
         Args:
-            manual_trigger: 是否为手动触发（如果是，即使无数据也会发送提示）
+            manual_trigger: 是否为手动触发
+            event: 触发事件对象 (仅手动触发时存在)
         """
-        target_id = self.config.get("report_target_id")
-        if not target_id:
-            msg = "⚠️ 未配置推送目标ID (report_target_id)，请使用 /emby推送配置 target <id> 进行设置"
-            logger.warning(msg)
-            if manual_trigger:
-                # 尝试找到来源事件进行回复比较困难，这里只打日志，
-                # 或者如果该函数被指令直接调用，指令那边已经处理了反馈
-                pass
-            return
+        # 如果是手动触发且有 event，优先使用 event 发送，这样最稳
+        if manual_trigger and event:
+            logger.info("使用当前会话直接发送日报")
+        else:
+            target_id = self.config.get("report_target_id")
+            if not target_id:
+                msg = "⚠️ 未配置推送目标ID (report_target_id)，请使用 /emby推送配置 target <id> 进行设置"
+                logger.warning(msg)
+                if manual_trigger and event:
+                   yield event.plain_result(msg)
+                return
 
         logger.info(f"开始执行每日入库统计推送 (手动触发: {manual_trigger})...")
         data = await self.emby_api.get_today_additions_stats()
@@ -79,9 +82,11 @@ class MyPlugin(Star):
         if total == 0:
             logger.info("今日无新入库")
             if manual_trigger:
-                # 手动触发时，发送一条“无更新”的提示
                 msg = f"📅 {datetime.now().strftime('%Y-%m-%d')}\n今日暂无新入库内容。"
-                await self._send_to_target(target_id, msg)
+                if event:
+                    await event.send(event.plain_result(msg))
+                elif target_id:
+                    await self._send_to_target(target_id, msg)
             return
 
         # 构建消息内容
@@ -107,10 +112,15 @@ class MyPlugin(Star):
             if total > len(items):
                 msg += f"...等共 {total} 条记录"
 
-        await self._send_to_target(target_id, msg.strip())
+        msg = msg.strip()
+
+        if manual_trigger and event:
+            await event.send(event.plain_result(msg))
+        else:
+            await self._send_to_target(target_id, msg)
 
     async def _send_to_target(self, target_id: str, msg: str):
-        """发送消息到指定目标"""
+        """发送消息到指定目标 (增强版)"""
         sent = False
         platform_name = None
         user_id = target_id
@@ -119,59 +129,100 @@ class MyPlugin(Star):
         if ":" in target_id:
             platform_name, user_id = target_id.split(":", 1)
 
-        logger.info(f"准备推送消息，目标: {target_id} (平台: {platform_name}, 用户/群: {user_id})")
+        logger.info(f"准备推送消息，目标: {target_id} (平台: {platform_name})")
 
         try:
-            platforms = self.context.platform_manager.platforms
+            # 获取所有平台实例 - 修复 API 调用
+            platforms = []
+            if hasattr(self.context, 'platform_manager'):
+                # 尝试获取平台实例列表，兼容不同版本 API
+                pm = self.context.platform_manager
+                if hasattr(pm, 'get_insts'):
+                    platforms = pm.get_insts()
+                elif hasattr(pm, 'platforms'):
+                    platforms = pm.platforms
+                elif hasattr(pm, 'adapters'):
+                    platforms = pm.adapters
+                else:
+                    # 尝试直接遍历属性查找列表
+                    for attr in dir(pm):
+                        if not attr.startswith('_'):
+                            val = getattr(pm, attr)
+                            if isinstance(val, list) and len(val) > 0 and hasattr(val[0], 'platform_name'):
+                                platforms = val
+                                break
+
             if not platforms:
-                logger.error("未加载任何平台适配器，无法推送")
+                logger.error(f"未找到任何平台实例 (PlatformManager 属性: {dir(self.context.platform_manager)})")
                 return False
 
             for platform in platforms:
-                # 如果指定了平台，跳过不匹配的
+                # 筛选指定平台
                 curr_platform_name = getattr(platform, "platform_name", str(platform))
                 if platform_name and curr_platform_name != platform_name:
                     continue
 
-                logger.debug(f"尝试通过平台推送: {curr_platform_name}")
+                # 尝试获取底层的 bot 客户端
+                bot_client = None
+                if hasattr(platform, 'get_client'):
+                    bot_client = platform.get_client()
+                elif hasattr(platform, 'client'):
+                    bot_client = platform.client
+                elif hasattr(platform, 'bot'):
+                    bot_client = platform.bot
 
-                # 构建消息链
-                chain = [Comp.Plain(msg)]
-
-                # 尝试调用发送接口
-                # 1. 尝试 platform.send_msg (通用适配器接口)
+                # 尝试转换 ID 为整数 (QQ 需要)
                 try:
-                    # 转换 ID 类型 (QQ 等平台通常需要 int)
+                    uid_int = int(user_id)
+                except ValueError:
+                    uid_int = None
+
+                # 策略 1: 使用底层 call_action (OneBot/Lagrange)
+                call_action = None
+                if bot_client:
+                    if hasattr(bot_client, 'call_action'):
+                        call_action = bot_client.call_action
+                    elif hasattr(bot_client, 'api') and hasattr(bot_client.api, 'call_action'):
+                        call_action = bot_client.api.call_action
+
+                if call_action and uid_int:
+                    logger.info(f"尝试使用底层 API (call_action) 通过 {curr_platform_name} 发送...")
+                    message_payload = [{"type": "text", "data": {"text": msg}}]
+
+                    # 尝试 1.1: 发送私聊
                     try:
-                        uid = int(user_id)
-                    except ValueError:
-                        uid = user_id
-
-                    if hasattr(platform, "send_msg"):
-                        await platform.send_msg(uid, chain)
-                        logger.info(f"通过 {curr_platform_name}.send_msg 发送成功")
+                        await call_action("send_private_msg", user_id=uid_int, message=message_payload)
+                        logger.info(f"✅ 私聊推送成功 (user_id={uid_int})")
                         sent = True
                         break
+                    except Exception:
+                        pass
 
-                    # 2. 尝试 aiocqhttp 风格的 send_private_msg / send_group_msg
-                    # 这需要检查 platform 内部的 bot 实例
-                    elif hasattr(platform, "bot") and hasattr(platform.bot, "send_private_msg"):
-                        # 这是一个猜测，针对某些 qq 适配器
-                        await platform.bot.send_private_msg(user_id=uid, message=msg)
-                        logger.info(f"通过 {curr_platform_name}.bot.send_private_msg 发送成功")
+                    # 尝试 1.2: 发送群聊
+                    try:
+                        await call_action("send_group_msg", group_id=uid_int, message=message_payload)
+                        logger.info(f"✅ 群聊推送成功 (group_id={uid_int})")
                         sent = True
                         break
+                    except Exception:
+                        pass
 
-                    else:
-                        logger.warning(f"平台 {curr_platform_name} 没有找到兼容的发送方法 (send_msg)")
-
-                except Exception as e:
-                    logger.error(f"尝试通过平台 {curr_platform_name} 发送异常: {e}")
+                # 策略 2: 使用 AstrBot 标准接口 (platform.send_msg)
+                if not sent and hasattr(platform, "send_msg"):
+                    logger.info(f"尝试使用标准接口 platform.send_msg 通过 {curr_platform_name} 发送...")
+                    chain = [Comp.Plain(msg)]
+                    try:
+                        await platform.send_msg(uid_int if uid_int else user_id, chain)
+                        logger.info("✅ 标准接口推送成功")
+                        sent = True
+                        break
+                    except Exception as e:
+                        logger.warning(f"标准接口发送失败: {e}")
 
             if sent:
                 return True
             else:
-                logger.error(f"遍历所有平台后仍未成功发送消息至 {target_id}")
+                logger.error(f"❌ 所有尝试均失败，无法推送到目标: {target_id}")
                 return False
 
         except Exception as e:
