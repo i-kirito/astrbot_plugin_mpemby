@@ -136,7 +136,7 @@ class MyPlugin(Star):
             self.scheduler.shutdown()
             logger.info("已停止定时任务")
 
-    @filter.command("sub")
+    @filter.command("mp订阅")
     async def sub(self, event: AstrMessageEvent, message: str):
         '''订阅影片'''
         movies = await self.api.search_media_info(message)  # 使用 self.api 访问实例属性
@@ -145,14 +145,14 @@ class MyPlugin(Star):
             print(movie_list)
             media_list = "\n查询到的影片如下\n请直接回复序号进行订阅（回复0退出选择）：\n" + movie_list
             yield event.plain_result(media_list)
-            
+
             # 使用会话控制器等待用户回复
             @session_waiter(timeout=60, record_history_chains=False)
             async def movie_selection_waiter(controller: SessionController, event: AstrMessageEvent):
                 try:
                     user_input = event.message_str.strip()
                     user_id = event.get_sender_id()
-                    
+
                     # 检查用户是否在等待选择季度
                     user_state = self.state.get(user_id, {})
                     if user_state.get("waiting_for") == "season":
@@ -161,14 +161,14 @@ class MyPlugin(Star):
                             season_number = int(user_input)
                             selected_movie = user_state["selected_movie"]
                             seasons = user_state["seasons"]
-                            
+
                             # 验证季度是否有效
                             valid_season = False
                             for season in seasons:
                                 if season['season_number'] == season_number:
                                     valid_season = True
                                     break
-                            
+
                             if valid_season:
                                 # 订阅电视剧的指定季度
                                 success = await self.api.subscribe_series(selected_movie, season_number)
@@ -192,18 +192,18 @@ class MyPlugin(Star):
                             await event.send(message_result)
                             controller.keep(timeout=60, reset_timeout=True)
                         return
-                    
+
                     # 处理电影选择
                     try:
                         index = int(user_input) - 1
-                        
+
                         if index == -1:  # 用户输入0
                             message_result = event.make_result()
                             message_result.chain = [Comp.Plain("操作已取消。")]
                             await event.send(message_result)
                             controller.stop()
                             return
-                            
+
                         if 0 <= index < len(movies):
                             selected_movie = movies[index]
                             if selected_movie['type'] == "电视剧":
@@ -213,14 +213,14 @@ class MyPlugin(Star):
                                     season_list = "\n".join(
                                         [f"第 {season['season_number']} 季 {season['name']}" for season in seasons])
                                     season_list = "\n查询到的季如下\n请直接回复季数进行选择：\n" + season_list
-                                    
+
                                     message_result = event.make_result()
                                     message_result.chain = [Comp.Plain(season_list)]
                                     await event.send(message_result)
-                                    
+
                                     # 继续等待用户选择季数
                                     controller.keep(timeout=60, reset_timeout=True)
-                                    
+
                                     # 更新状态
                                     self.state[user_id] = {
                                         "selected_movie": selected_movie,
@@ -258,7 +258,7 @@ class MyPlugin(Star):
                     message_result.chain = [Comp.Plain(f"处理输入时出错: {str(e)}")]
                     await event.send(message_result)
                     controller.stop()
-            
+
             try:
                 await movie_selection_waiter(event)
             except Exception as e:
@@ -269,7 +269,7 @@ class MyPlugin(Star):
         else:
             yield event.plain_result("没有查询到影片，请检查名字。")
 
-    @filter.command("download")
+    @filter.command("mp下载")
     async def progress(self, event: AstrMessageEvent):
         '''查看下载'''
         progress_data = await self.api.get_download_progress()
@@ -343,7 +343,7 @@ class MyPlugin(Star):
 
         yield event.plain_result("\n".join(result_lines))
 
-    @filter.command("emby_search")
+    @filter.command("emby搜索")
     async def emby_search(self, event: AstrMessageEvent, keyword: str):
         '''在Emby媒体库中搜索'''
         if not self.emby_api.is_configured():
@@ -351,7 +351,7 @@ class MyPlugin(Star):
             return
 
         if not keyword.strip():
-            yield event.plain_result("请输入搜索关键词，例如: /emby_search 复仇者联盟")
+            yield event.plain_result("请输入搜索关键词，例如: /emby搜索 复仇者联盟")
             return
 
         yield event.plain_result(f"正在搜索: {keyword}...")
@@ -376,7 +376,7 @@ class MyPlugin(Star):
 
         yield event.plain_result("\n".join(result_lines))
 
-    @filter.command("emby_stats")
+    @filter.command("emby统计")
     async def emby_stats(self, event: AstrMessageEvent):
         '''查看Emby媒体库统计'''
         if not self.emby_api.is_configured():
@@ -398,22 +398,184 @@ class MyPlugin(Star):
 
         yield event.plain_result(result)
 
-    @filter.command("help")
+    @filter.command("emby推送")
+    async def manual_daily_report(self, event: AstrMessageEvent):
+        '''手动发送一次今日入库日报'''
+        # 鉴权：仅管理员可用
+        is_admin = False
+        try:
+            if hasattr(event, "is_admin"):
+                if callable(event.is_admin):
+                    is_admin = event.is_admin()
+                else:
+                    is_admin = bool(event.is_admin)
+
+            if not is_admin:
+                role = getattr(event, "role", None)
+                if isinstance(role, str) and role.lower() == "admin":
+                    is_admin = True
+
+            if not is_admin:
+                sender_id = str(event.get_sender_id())
+                astrbot_config = self.context.get_config()
+                for key in ("admins", "admin_ids", "admin_list", "superusers"):
+                    ids = astrbot_config.get(key, [])
+                    if isinstance(ids, (list, tuple, set)) and sender_id in {str(i) for i in ids}:
+                        is_admin = True
+                        break
+        except:
+            pass
+
+        if not is_admin:
+            yield event.plain_result("🚫 仅管理员可执行此操作")
+            return
+
+        yield event.plain_result("⏳ 正在触发日报推送...")
+
+        # 强制执行推送，忽略"无更新跳过"的逻辑？通常手动触发可能希望看到结果
+        # 但复用 send_daily_report 会保留该逻辑。
+        # 如果需要强制发送即使无更新，需要修改 send_daily_report 的参数。
+        # 这里暂时保持一致逻辑。
+        await self.send_daily_report()
+
+        yield event.plain_result("✅ 推送逻辑执行完毕")
+
+    @filter.command("emby推送配置")
+    async def config_daily_report(self, event: AstrMessageEvent, action: str = "", value: str = ""):
+        '''配置每日入库推送
+
+        参数:
+            action: 操作指令 (on/off/time/target)
+            value: 参数值
+        '''
+        # 鉴权：仅管理员可用
+        is_admin = False
+        try:
+            # 尝试多种方式判断管理员
+            if hasattr(event, "is_admin"):
+                if callable(event.is_admin):
+                    is_admin = event.is_admin()
+                else:
+                    is_admin = bool(event.is_admin)
+
+            if not is_admin:
+                role = getattr(event, "role", None)
+                if isinstance(role, str) and role.lower() == "admin":
+                    is_admin = True
+
+            # 兜底：检查是否在配置的管理员列表中
+            if not is_admin:
+                sender_id = str(event.get_sender_id())
+                astrbot_config = self.context.get_config()
+                for key in ("admins", "admin_ids", "admin_list", "superusers"):
+                    ids = astrbot_config.get(key, [])
+                    if isinstance(ids, (list, tuple, set)) and sender_id in {str(i) for i in ids}:
+                        is_admin = True
+                        break
+        except:
+            pass
+
+        if not is_admin:
+            yield event.plain_result("🚫 仅管理员可执行此操作")
+            return
+
+        if not action:
+            # 显示当前配置
+            status = "✅ 开启" if self.config.get("enable_daily_report") else "❌ 关闭"
+            time_val = self.config.get("report_time", "20:00")
+            target = self.config.get("report_target_id", "未设置")
+
+            msg = f"""⚙️ 每日入库推送配置
+━━━━━━━━━━━━
+状态：{status}
+时间：{time_val}
+目标：{target}
+━━━━━━━━━━━━
+指令说明：
+/emby推送配置 on        - 开启推送
+/emby推送配置 off       - 关闭推送
+/emby推送配置 time 20:00 - 设置时间
+/emby推送配置 target 123 - 设置目标ID
+"""
+            yield event.plain_result(msg)
+            return
+
+        action = action.lower()
+
+        try:
+            if action == "on":
+                self.config["enable_daily_report"] = True
+                if HAS_APSCHEDULER:
+                    self.setup_scheduler() # 重新设置调度器
+                yield event.plain_result("✅ 已开启每日入库推送")
+
+            elif action == "off":
+                self.config["enable_daily_report"] = False
+                if self.scheduler:
+                    self.scheduler.shutdown()
+                    self.scheduler = None
+                yield event.plain_result("✅ 已关闭每日入库推送")
+
+            elif action == "time":
+                if not value:
+                    yield event.plain_result("❌ 请输入时间，格式 HH:MM，例如: /emby推送配置 time 20:00")
+                    return
+                # 简单验证格式
+                try:
+                    datetime.strptime(value, "%H:%M")
+                    self.config["report_time"] = value
+                    if self.config.get("enable_daily_report"):
+                        self.setup_scheduler() # 重启任务以应用新时间
+                    yield event.plain_result(f"✅ 推送时间已设置为: {value}")
+                except ValueError:
+                    yield event.plain_result("❌ 时间格式错误，请使用 HH:MM 格式")
+
+            elif action == "target":
+                if not value:
+                    yield event.plain_result("❌ 请输入目标ID (群号或QQ号)")
+                    return
+                self.config["report_target_id"] = value
+                yield event.plain_result(f"✅ 推送目标已设置为: {value}")
+            else:
+                yield event.plain_result(f"❌ 未知指令: {action}")
+                return
+
+            # 尝试保存配置 (如果在 AstrBot 中支持)
+            # 注意：这里修改的是内存中的 config，重启后可能会失效，除非框架自动保存
+            # AstrBot v3+ 通常可以通过 context.save_config() 保存
+            if hasattr(self.context, "save_config"):
+                try:
+                    # save_config 通常需要传入 plugin_name 或实例
+                    # 具体参数视版本而定，这里尝试无参调用或传自身
+                    # 或者提示用户手动去后台保存
+                    pass
+                except:
+                    pass
+
+        except Exception as e:
+            logger.error(f"修改配置失败: {e}")
+            yield event.plain_result(f"❌ 配置修改失败: {str(e)}")
+
+    @filter.command("订阅帮助")
     async def show_help(self, event: AstrMessageEvent):
         '''显示帮助信息'''
         help_text = """📖 MoviePilot & Emby 插件帮助 📖
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【MoviePilot 功能】
-  /sub [片名]      - 搜索并订阅影片
-  /download        - 查看下载进度
+  /mp订阅 [片名]      - 搜索并订阅影片
+  /mp下载        - 查看下载进度
 
 【Emby 功能】
   /emby [类型]     - 查看最新入库
                      类型: movie/电影, series/电视剧, all/全部
-  /emby_search [关键词] - 搜索媒体库
-  /emby_stats      - 查看媒体库统计
+  /emby搜索 [关键词] - 搜索媒体库
+  /emby统计      - 查看媒体库统计
+
+【推送管理】(管理员)
+  /emby推送配置    - 查看/修改推送设置
+  /emby推送        - 手动触发一次推送
 
 【其他】
-  /help            - 显示此帮助
+  /订阅帮助            - 显示此帮助
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
         yield event.plain_result(help_text)

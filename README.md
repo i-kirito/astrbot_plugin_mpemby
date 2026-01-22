@@ -1,60 +1,75 @@
-# MoviePilot 订阅 & Emby 入库查询插件
+# MoviePilot & Emby 插件
 
-> 本项目是基于 AstrBot 开发的插件，部署请参考此项目
-> https://github.com/Soulter/AstrBot
+> 本项目是基于 AstrBot 开发的插件，提供 MoviePilot 订阅管理和 Emby 媒体库查询/统计功能。
 
-## 功能
+## ✨ 功能特性
 
-- MoviePilot 影片搜索与订阅
-- MoviePilot 下载进度查看
-- Emby 最新入库查询
-- Emby 媒体库搜索
-- Emby 媒体库统计
+- **MoviePilot**:
+  - 影片搜索与订阅 (支持交互式选片/选季)
+  - 查看下载进度
+- **Emby**:
+  - 查看最新入库 (电影/剧集)
+  - 媒体库搜索
+  - 媒体库统计
+  - **[新] 每日入库日报推送** (定时统计今日新增)
 
-## 配置
+## ⚙️ 配置说明
+
+请在 AstrBot 管理后台的插件配置中填写：
 
 ### MoviePilot 配置
-
-| 配置项 | 说明 |
-|--------|------|
-| mp_url | 公网能够访问的 MoviePilot 地址 |
-| mp_token | MoviePilot 中的 token |
-| mp_username | MoviePilot 用户名 |
-| mp_password | MoviePilot 密码 |
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `mp_url` | MP 地址 (e.g. `http://192.168.1.2:3000`) | `http://localhost:3000` |
+| `mp_token` | MP Token | - |
+| `mp_username` | 用户名 | `admin` |
+| `mp_password` | 密码 | - |
 
 ### Emby 配置
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `emby_url` | Emby 地址 (e.g. `http://192.168.1.2:8096`) | `http://localhost:8096` |
+| `emby_api_key` | API Key (在 Emby 后台生成) | - |
+| `emby_user_id` | 用户 ID (用于获取特定用户的视图) | - |
 
+### 日报推送配置
 | 配置项 | 说明 |
 |--------|------|
-| emby_url | Emby 服务器地址，如 `http://192.168.1.100:8096` |
-| emby_api_key | Emby API Key，在 Emby 后台 -> 设置 -> API密钥 中生成 |
-| emby_user_id | Emby 用户ID，可在 Emby 后台用户 URL 中获取 |
-| emby_max_results | 查询结果最大数量，默认 10 |
+| `enable_daily_report` | 是否开启每日推送 (默认关闭) |
+| `report_time` | 推送时间 (格式 `HH:MM`, 默认 `20:00`) |
+| `report_target_id` | **推送目标 ID** (QQ号或群号) |
 
-## 指令
+## 💻 指令列表
 
-### MoviePilot 相关
-
+### MoviePilot
 | 指令 | 说明 |
 |------|------|
-| `/sub [片名]` | 搜索并订阅影片 |
-| `/download` | 查看下载进度 |
+| `/mp订阅 [片名]` | 搜索并订阅影片 |
+| `/mp下载` | 查看当前下载进度 |
 
-### Emby 相关
-
+### Emby
 | 指令 | 说明 |
 |------|------|
-| `/emby [类型]` | 查看最新入库，类型可选: `movie`/`电影`, `series`/`电视剧`, `all`/`全部`(默认) |
-| `/emby_search [关键词]` | 在 Emby 媒体库中搜索 |
-| `/emby_stats` | 查看媒体库统计信息 |
+| `/emby [类型]` | 查看最新入库 (可选: 电影/电视剧/全部) |
+| `/emby搜索 [关键词]` | 在媒体库中搜索 |
+| `/emby统计` | 查看媒体库统计信息 |
+
+### 推送管理 (管理员)
+| 指令 | 说明 |
+|------|------|
+| `/emby推送配置` | 查看/修改推送设置 (支持 on/off/time/target) |
+| `/emby推送` | 手动触发一次今日日报推送 |
 
 ### 其他
-
 | 指令 | 说明 |
 |------|------|
-| `/help` | 显示帮助信息 |
+| `/订阅帮助` | 显示帮助信息 |
 
-## 版本历史
+## 📝 版本历史
 
-- v1.2.0: 新增 Emby 入库查询、搜索、统计功能
-- v1.1.1: 初始版本，支持 MoviePilot 订阅和下载查看
+- **v1.2.1**:
+  - 指令全面汉化。
+  - 新增每日入库日报推送功能。
+  - 优化默认配置提示。
+- **v1.2.0**:
+  - 新增 Emby 入库查询、搜索、统计功能。
