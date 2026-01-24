@@ -535,8 +535,6 @@ class MyPlugin(Star):
         # 强制执行推送，并开启手动触发标志
         await self.send_daily_report(manual_trigger=True, event=event)
 
-        yield event.plain_result("✅ 推送逻辑执行完毕")
-
     @filter.command("emby推送配置")
     async def config_daily_report(self, event: AstrMessageEvent, action: str = "", value: str = ""):
         '''配置每日入库推送
