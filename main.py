@@ -533,7 +533,7 @@ class MyPlugin(Star):
         yield event.plain_result("⏳ 正在触发日报推送...")
 
         # 强制执行推送，并开启手动触发标志
-        await self.send_daily_report(manual_trigger=True)
+        await self.send_daily_report(manual_trigger=True, event=event)
 
         yield event.plain_result("✅ 推送逻辑执行完毕")
 
