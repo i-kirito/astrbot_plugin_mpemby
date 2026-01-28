@@ -32,7 +32,7 @@ except ImportError:
     HAS_APSCHEDULER = False
     logger.warning("apscheduler not found, daily report function disabled.")
 
-@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.2.7", "https://github.com/i-kirito/astrbot_plugin_mpemby")
+@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.2.8", "https://github.com/i-kirito/astrbot_plugin_mpemby")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -47,6 +47,149 @@ class MyPlugin(Star):
             self.setup_scheduler()
 
         logger.info(f"插件初始化完成，Emby配置状态: {'已配置' if self.emby_api.is_configured() else '未配置'}")
+
+    def render_subscribe_card(self, media_info: dict, success_count: int = 0, failed_count: int = 0, is_movie: bool = False) -> bytes:
+        """渲染订阅成功卡片"""
+        if not HAS_PILLOW:
+            return None
+
+        # 配置参数
+        padding = 30
+        font_size = 24
+        title_font_size = 32
+        bg_color = (25, 135, 84)  # 绿色成功背景
+        text_color = (255, 255, 255)
+        secondary_color = (200, 230, 200)
+
+        # 加载字体
+        font = None
+        title_font = None
+        font_paths = [
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "C:\\Windows\\Fonts\\msyh.ttc",
+            "C:\\Windows\\Fonts\\simhei.ttf",
+        ]
+
+        for path in font_paths:
+            try:
+                if os.path.exists(path):
+                    font = ImageFont.truetype(path, font_size)
+                    title_font = ImageFont.truetype(path, title_font_size)
+                    break
+            except Exception:
+                continue
+
+        if not font:
+            font = ImageFont.load_default()
+            title_font = font
+
+        # 构建卡片内容
+        title = media_info.get('title', '未知')
+        year = media_info.get('year', '')
+        media_type = media_info.get('type', '电影')
+
+        lines = [
+            "✅ 订阅成功",
+            "",
+            f"📺 {title}" if media_type == "电视剧" else f"🎬 {title}",
+            f"年份：{year}" if year else "",
+            f"类型：{media_type}",
+        ]
+
+        if not is_movie and success_count > 0:
+            lines.append(f"季数：成功 {success_count} 季" + (f"，失败 {failed_count} 季" if failed_count > 0 else ""))
+
+        lines = [l for l in lines if l]  # 过滤空行
+
+        # 计算尺寸
+        temp_img = Image.new('RGB', (1, 1))
+        temp_draw = ImageDraw.Draw(temp_img)
+
+        max_width = 0
+        for i, line in enumerate(lines):
+            f = title_font if i == 0 else font
+            bbox = temp_draw.textbbox((0, 0), line, font=f)
+            max_width = max(max_width, bbox[2] - bbox[0])
+
+        img_width = max(max_width + padding * 2, 400)
+        line_height = font_size + 12
+        img_height = len(lines) * line_height + padding * 2 + 20
+
+        # 创建图片
+        img = Image.new('RGB', (img_width, img_height), bg_color)
+        draw = ImageDraw.Draw(img)
+
+        # 绘制内容
+        y = padding
+        for i, line in enumerate(lines):
+            if i == 0:
+                draw.text((padding, y), line, font=title_font, fill=text_color)
+                y += title_font_size + 20
+            else:
+                color = text_color if i <= 2 else secondary_color
+                draw.text((padding, y), line, font=font, fill=color)
+                y += line_height
+
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG', optimize=True)
+        return buffer.getvalue()
+
+    async def send_subscribe_result(self, event: AstrMessageEvent, media_info: dict,
+                                     success_count: int = 0, failed_count: int = 0, is_movie: bool = False):
+        """发送订阅结果（支持卡片和引用回复）"""
+        enable_card = self.config.get("enable_subscribe_card", True)
+
+        # 构建文本消息
+        title = media_info.get('title', '未知')
+        year = media_info.get('year', '')
+        media_type = media_info.get('type', '电影')
+
+        if is_movie:
+            msg = f"✅ 订阅成功\n\n🎬 {title}\n年份：{year}\n类型：{media_type}"
+        else:
+            msg = f"✅ 订阅成功\n\n📺 {title}\n年份：{year}\n类型：{media_type}\n季数：成功 {success_count} 季"
+            if failed_count > 0:
+                msg += f"，失败 {failed_count} 季"
+
+        message_result = event.make_result()
+
+        # 添加引用回复
+        try:
+            if hasattr(event, 'message_obj') and hasattr(event.message_obj, 'message_id'):
+                message_result.chain = [Comp.Reply(event.message_obj.message_id)]
+            elif hasattr(event, 'message_id'):
+                message_result.chain = [Comp.Reply(event.message_id)]
+            else:
+                message_result.chain = []
+        except Exception:
+            message_result.chain = []
+
+        # 尝试发送卡片
+        if enable_card and HAS_PILLOW:
+            try:
+                img_bytes = self.render_subscribe_card(media_info, success_count, failed_count, is_movie)
+                if img_bytes:
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+                        f.write(img_bytes)
+                        tmp_path = f.name
+
+                    message_result.chain.append(Comp.Image.fromFileSystem(tmp_path))
+                    await event.send(message_result)
+
+                    try:
+                        os.unlink(tmp_path)
+                    except Exception:
+                        pass
+                    return
+            except Exception as e:
+                logger.warning(f"卡片渲染失败，使用文本: {e}")
+
+        # 回退到纯文本
+        message_result.chain.append(Comp.Plain(msg))
+        await event.send(message_result)
 
     def setup_scheduler(self):
         """配置定时任务"""
@@ -493,15 +636,17 @@ class MyPlugin(Star):
                                     # 订阅所有季
                                     result = await self.api.subscribe_all_seasons(selected_movie, seasons)
 
-                                    message_result = event.make_result()
                                     if result["success"] > 0:
-                                        msg = f"\n订阅类型：{selected_movie['type']}\n订阅影片：{selected_movie['title']} ({selected_movie['year']})\n✅ 成功订阅 {result['success']} 季"
-                                        if result["failed"] > 0:
-                                            msg += f"，{result['failed']} 季订阅失败（可能已订阅）"
-                                        message_result.chain = [Comp.Plain(msg)]
+                                        await self.send_subscribe_result(
+                                            event, selected_movie,
+                                            success_count=result["success"],
+                                            failed_count=result["failed"],
+                                            is_movie=False
+                                        )
                                     else:
+                                        message_result = event.make_result()
                                         message_result.chain = [Comp.Plain("订阅失败，可能已全部订阅。")]
-                                    await event.send(message_result)
+                                        await event.send(message_result)
                                     controller.stop()
                                 else:
                                     message_result = event.make_result()
@@ -511,12 +656,12 @@ class MyPlugin(Star):
                             else:
                                 # 如果是电影，直接订阅
                                 success = await self.api.subscribe_movie(selected_movie)
-                                message_result = event.make_result()
                                 if success:
-                                    message_result.chain = [Comp.Plain(f"\n订阅类型：{selected_movie['type']}\n订阅影片：{selected_movie['title']} ({selected_movie['year']})\n订阅成功！")]
+                                    await self.send_subscribe_result(event, selected_movie, is_movie=True)
                                 else:
+                                    message_result = event.make_result()
                                     message_result.chain = [Comp.Plain("订阅失败。")]
-                                await event.send(message_result)
+                                    await event.send(message_result)
                                 controller.stop()
                         else:
                             message_result = event.make_result()

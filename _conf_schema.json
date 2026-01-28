@@ -1,4 +1,10 @@
 {
+    "enable_subscribe_card": {
+        "description": "订阅成功后发送卡片通知",
+        "type": "bool",
+        "default": true,
+        "hint": "订阅成功后是否发送图片卡片形式的通知"
+    },
     "mp_url": {
         "description": "MoviePilotUrl",
         "type": "string",
