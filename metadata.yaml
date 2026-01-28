@@ -1,5 +1,5 @@
 name: astrbot_plugin_mpemby
-name: 媒体库管理
+display_name: 媒体库管理
 desc: MoviePilot 订阅与 Emby 入库查询插件
 help:
 version: v1.3.0
