@@ -32,7 +32,7 @@ except ImportError:
     HAS_APSCHEDULER = False
     logger.warning("apscheduler not found, daily report function disabled.")
 
-@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.2.9", "https://github.com/i-kirito/astrbot_plugin_mpemby")
+@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.3.0", "https://github.com/i-kirito/astrbot_plugin_mpemby")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -49,21 +49,30 @@ class MyPlugin(Star):
         logger.info(f"插件初始化完成，Emby配置状态: {'已配置' if self.emby_api.is_configured() else '未配置'}")
 
     def render_subscribe_card(self, media_info: dict, success_count: int = 0, failed_count: int = 0, is_movie: bool = False) -> bytes:
-        """渲染订阅成功卡片"""
+        """渲染订阅成功卡片 - 现代风格"""
         if not HAS_PILLOW:
             return None
 
         # 配置参数
-        padding = 30
-        font_size = 24
-        title_font_size = 32
-        bg_color = (25, 135, 84)  # 绿色成功背景
-        text_color = (255, 255, 255)
-        secondary_color = (200, 230, 200)
+        padding = 40
+        font_size = 26
+        title_font_size = 36
+        small_font_size = 20
+
+        # 现代配色方案
+        bg_gradient_top = (45, 55, 72)      # 深蓝灰
+        bg_gradient_bottom = (26, 32, 44)   # 更深的蓝灰
+        accent_color = (72, 187, 120)       # 清新绿色
+        title_color = (255, 255, 255)       # 白色标题
+        text_color = (226, 232, 240)        # 浅灰文字
+        muted_color = (160, 174, 192)       # 灰色次要文字
+        success_badge_bg = (72, 187, 120)   # 成功徽章背景
+        card_bg = (55, 65, 81)              # 卡片内容区背景
 
         # 加载字体
         font = None
         title_font = None
+        small_font = None
         font_paths = [
             "/System/Library/Fonts/PingFang.ttc",
             "/System/Library/Fonts/STHeiti Light.ttc",
@@ -78,6 +87,7 @@ class MyPlugin(Star):
                 if os.path.exists(path):
                     font = ImageFont.truetype(path, font_size)
                     title_font = ImageFont.truetype(path, title_font_size)
+                    small_font = ImageFont.truetype(path, small_font_size)
                     break
             except Exception:
                 continue
@@ -85,53 +95,83 @@ class MyPlugin(Star):
         if not font:
             font = ImageFont.load_default()
             title_font = font
+            small_font = font
 
-        # 构建卡片内容
+        # 获取媒体信息
         title = media_info.get('title', '未知')
         year = media_info.get('year', '')
         media_type = media_info.get('type', '电影')
-
-        lines = [
-            "✅ 订阅成功",
-            "",
-            f"📺 {title}" if media_type == "电视剧" else f"🎬 {title}",
-            f"年份：{year}" if year else "",
-            f"类型：{media_type}",
-        ]
-
-        if not is_movie and success_count > 0:
-            lines.append(f"季数：成功 {success_count} 季" + (f"，失败 {failed_count} 季" if failed_count > 0 else ""))
-
-        lines = [l for l in lines if l]  # 过滤空行
+        icon = "📺" if media_type == "电视剧" else "🎬"
 
         # 计算尺寸
-        temp_img = Image.new('RGB', (1, 1))
-        temp_draw = ImageDraw.Draw(temp_img)
+        img_width = 480
+        header_height = 70
+        content_padding = 25
+        line_height = 40
+        content_lines = 3 if is_movie else 4
+        content_height = content_lines * line_height + content_padding * 2
+        img_height = padding + header_height + 20 + content_height + padding
 
-        max_width = 0
-        for i, line in enumerate(lines):
-            f = title_font if i == 0 else font
-            bbox = temp_draw.textbbox((0, 0), line, font=f)
-            max_width = max(max_width, bbox[2] - bbox[0])
-
-        img_width = max(max_width + padding * 2, 400)
-        line_height = font_size + 12
-        img_height = len(lines) * line_height + padding * 2 + 20
-
-        # 创建图片
-        img = Image.new('RGB', (img_width, img_height), bg_color)
+        # 创建图片 - 渐变背景
+        img = Image.new('RGB', (img_width, img_height), bg_gradient_top)
         draw = ImageDraw.Draw(img)
 
-        # 绘制内容
-        y = padding
-        for i, line in enumerate(lines):
-            if i == 0:
-                draw.text((padding, y), line, font=title_font, fill=text_color)
-                y += title_font_size + 20
-            else:
-                color = text_color if i <= 2 else secondary_color
-                draw.text((padding, y), line, font=font, fill=color)
-                y += line_height
+        # 绘制渐变背景
+        for y in range(img_height):
+            ratio = y / img_height
+            r = int(bg_gradient_top[0] * (1 - ratio) + bg_gradient_bottom[0] * ratio)
+            g = int(bg_gradient_top[1] * (1 - ratio) + bg_gradient_bottom[1] * ratio)
+            b = int(bg_gradient_top[2] * (1 - ratio) + bg_gradient_bottom[2] * ratio)
+            draw.line([(0, y), (img_width, y)], fill=(r, g, b))
+
+        # 绘制顶部装饰条
+        draw.rectangle([0, 0, img_width, 5], fill=accent_color)
+
+        # 绘制成功徽章
+        badge_y = padding
+        badge_text = "✓ 订阅成功"
+        draw.rounded_rectangle([padding, badge_y, padding + 160, badge_y + 45], radius=22, fill=success_badge_bg)
+        draw.text((padding + 20, badge_y + 8), badge_text, font=font, fill=title_color)
+
+        # 绘制内容卡片区域
+        card_y = badge_y + header_height
+        card_x = padding
+        card_width = img_width - padding * 2
+        draw.rounded_rectangle(
+            [card_x, card_y, card_x + card_width, card_y + content_height],
+            radius=12,
+            fill=card_bg
+        )
+
+        # 绘制媒体标题
+        content_y = card_y + content_padding
+        title_text = f"{icon}  {title}"
+        draw.text((card_x + content_padding, content_y), title_text, font=title_font, fill=title_color)
+        content_y += line_height + 10
+
+        # 绘制分隔线
+        draw.line(
+            [(card_x + content_padding, content_y), (card_x + card_width - content_padding, content_y)],
+            fill=(75, 85, 99),
+            width=1
+        )
+        content_y += 15
+
+        # 绘制详情信息
+        info_items = []
+        if year:
+            info_items.append(f"📅  {year}年")
+        info_items.append(f"🏷️  {media_type}")
+
+        if not is_movie and success_count > 0:
+            season_text = f"📚  成功订阅 {success_count} 季"
+            if failed_count > 0:
+                season_text += f" · {failed_count} 季已存在"
+            info_items.append(season_text)
+
+        for item in info_items:
+            draw.text((card_x + content_padding, content_y), item, font=small_font, fill=muted_color)
+            content_y += line_height - 5
 
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
