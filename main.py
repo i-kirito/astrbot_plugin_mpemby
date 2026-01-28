@@ -87,34 +87,29 @@ class MyPlugin(Star):
             logger.error(f"保存白名单数据失败: {e}")
 
     def render_subscribe_card(self, media_info: dict, success_count: int = 0, failed_count: int = 0, is_movie: bool = False) -> bytes:
-        """渲染订阅成功卡片 - 现代风格（无 emoji）"""
+        """渲染订阅成功卡片 - 极简风格"""
         if not HAS_PILLOW:
             return None
 
         # 配置参数
-        padding = 40
-        font_size = 24
-        title_font_size = 32
-        small_font_size = 18
+        font_size = 20
+        title_font_size = 26
+        small_font_size = 16
 
-        # 现代配色方案
-        bg_gradient_top = (45, 55, 72)      # 深蓝灰
-        bg_gradient_bottom = (26, 32, 44)   # 更深的蓝灰
-        accent_color = (72, 187, 120)       # 清新绿色
+        # 极简配色方案
+        bg_color = (20, 20, 20)             # 深黑背景
+        accent_color = (80, 200, 120)       # 绿色强调
         title_color = (255, 255, 255)       # 白色标题
-        muted_color = (160, 174, 192)       # 灰色次要文字
-        success_badge_bg = (72, 187, 120)   # 成功徽章背景
-        card_bg = (55, 65, 81)              # 卡片内容区背景
-        tag_movie_bg = (59, 130, 246)       # 电影标签背景（蓝色）
-        tag_series_bg = (168, 85, 247)      # 剧集标签背景（紫色）
+        muted_color = (120, 120, 120)       # 灰色次要文字
+        line_color = (50, 50, 50)           # 分割线颜色
 
         # 加载字体
         font = None
         title_font = None
         small_font = None
         font_paths = [
-            "/System/Library/Fonts/PingFang.ttc",
             "/System/Library/Fonts/STHeiti Light.ttc",
+            "/System/Library/Fonts/PingFang.ttc",
             "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "C:\\Windows\\Fonts\\msyh.ttc",
@@ -142,80 +137,36 @@ class MyPlugin(Star):
         media_type = media_info.get('type', '电影')
 
         # 计算尺寸
-        img_width = 420
-        header_height = 60
-        content_padding = 20
-        line_height = 36
-        content_lines = 3 if is_movie else 4
-        content_height = content_lines * line_height + content_padding * 2
-        img_height = padding + header_height + 15 + content_height + padding
+        img_width = 400
+        img_height = 130 if is_movie else 155
 
-        # 创建图片 - 渐变背景
-        img = Image.new('RGB', (img_width, img_height), bg_gradient_top)
+        # 创建图片
+        img = Image.new('RGB', (img_width, img_height), bg_color)
         draw = ImageDraw.Draw(img)
 
-        # 绘制渐变背景
-        for y in range(img_height):
-            ratio = y / img_height
-            r = int(bg_gradient_top[0] * (1 - ratio) + bg_gradient_bottom[0] * ratio)
-            g = int(bg_gradient_top[1] * (1 - ratio) + bg_gradient_bottom[1] * ratio)
-            b = int(bg_gradient_top[2] * (1 - ratio) + bg_gradient_bottom[2] * ratio)
-            draw.line([(0, y), (img_width, y)], fill=(r, g, b))
+        # 左侧绿色装饰条
+        draw.rectangle([0, 0, 4, img_height], fill=accent_color)
 
-        # 绘制顶部装饰条
-        draw.rectangle([0, 0, img_width, 4], fill=accent_color)
+        # 成功文字
+        draw.text((20, 15), "✓ 订阅成功", font=font, fill=accent_color)
 
-        # 绘制成功徽章
-        badge_y = padding
-        badge_text = "订阅成功"
-        draw.rounded_rectangle([padding, badge_y, padding + 120, badge_y + 38], radius=19, fill=success_badge_bg)
-        draw.text((padding + 18, badge_y + 7), badge_text, font=font, fill=title_color)
+        # 标题
+        draw.text((20, 48), title, font=title_font, fill=title_color)
 
-        # 绘制内容卡片区域
-        card_y = badge_y + header_height
-        card_x = padding
-        card_width = img_width - padding * 2
-        draw.rounded_rectangle(
-            [card_x, card_y, card_x + card_width, card_y + content_height],
-            radius=10,
-            fill=card_bg
-        )
+        # 分割线
+        line_y = 90
+        draw.line([(20, line_y), (img_width - 20, line_y)], fill=line_color, width=1)
 
-        # 绘制媒体标题
-        content_y = card_y + content_padding
-        draw.text((card_x + content_padding, content_y), title, font=title_font, fill=title_color)
-        content_y += line_height + 8
+        # 底部信息
+        info_y = line_y + 10
+        info_text = f"{media_type} · {year}年" if year else media_type
 
-        # 绘制分隔线
-        draw.line(
-            [(card_x + content_padding, content_y), (card_x + card_width - content_padding, content_y)],
-            fill=(75, 85, 99),
-            width=1
-        )
-        content_y += 12
-
-        # 绘制类型标签
-        tag_bg = tag_series_bg if media_type == "电视剧" else tag_movie_bg
-        tag_text = f"[{media_type}]"
-        draw.rounded_rectangle(
-            [card_x + content_padding, content_y, card_x + content_padding + 70, content_y + 26],
-            radius=4,
-            fill=tag_bg
-        )
-        draw.text((card_x + content_padding + 8, content_y + 3), tag_text, font=small_font, fill=title_color)
-
-        # 绘制年份
-        if year:
-            year_text = f"{year}年"
-            draw.text((card_x + content_padding + 80, content_y + 3), year_text, font=small_font, fill=muted_color)
-        content_y += line_height
-
-        # 绘制季数信息（电视剧）
         if not is_movie and success_count > 0:
-            season_text = f"已订阅 {success_count} 季"
+            info_text += f" · 已订阅 {success_count} 季"
             if failed_count > 0:
-                season_text += f" / {failed_count} 季已存在"
-            draw.text((card_x + content_padding, content_y), season_text, font=small_font, fill=muted_color)
+                info_text += f"（{failed_count} 季已存在）"
+
+        draw.text((20, info_y), info_text, font=small_font, fill=muted_color)
 
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
