@@ -32,7 +32,7 @@ except ImportError:
     HAS_APSCHEDULER = False
     logger.warning("apscheduler not found, daily report function disabled.")
 
-@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.2.6", "https://github.com/i-kirito/astrbot_plugin_mpemby")
+@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.2.7", "https://github.com/i-kirito/astrbot_plugin_mpemby")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -468,47 +468,6 @@ class MyPlugin(Star):
             async def movie_selection_waiter(controller: SessionController, event: AstrMessageEvent):
                 try:
                     user_input = event.message_str.strip()
-                    user_id = event.get_sender_id()
-
-                    # 检查用户是否在等待选择季度
-                    user_state = self.state.get(user_id, {})
-                    if user_state.get("waiting_for") == "season":
-                        # 用户正在选择季度
-                        try:
-                            season_number = int(user_input)
-                            selected_movie = user_state["selected_movie"]
-                            seasons = user_state["seasons"]
-
-                            # 验证季度是否有效
-                            valid_season = False
-                            for season in seasons:
-                                if season['season_number'] == season_number:
-                                    valid_season = True
-                                    break
-
-                            if valid_season:
-                                # 订阅电视剧的指定季度
-                                success = await self.api.subscribe_series(selected_movie, season_number)
-                                message_result = event.make_result()
-                                if success:
-                                    message_result.chain = [Comp.Plain(f"\n订阅类型：{selected_movie['type']}\n订阅影片：{selected_movie['title']} ({selected_movie['year']})\n订阅第 {season_number} 季成功！")]
-                                else:
-                                    message_result.chain = [Comp.Plain("订阅失败。")]
-                                await event.send(message_result)
-                                # 清除状态
-                                self.state.pop(user_id, None)
-                                controller.stop()
-                            else:
-                                message_result = event.make_result()
-                                message_result.chain = [Comp.Plain("无效的季数，请重新输入。")]
-                                await event.send(message_result)
-                                controller.keep(timeout=60, reset_timeout=True)
-                        except ValueError:
-                            message_result = event.make_result()
-                            message_result.chain = [Comp.Plain("请输入一个有效的季数。")]
-                            await event.send(message_result)
-                            controller.keep(timeout=60, reset_timeout=True)
-                        return
 
                     # 处理电影选择
                     try:
@@ -524,26 +483,26 @@ class MyPlugin(Star):
                         if 0 <= index < len(movies):
                             selected_movie = movies[index]
                             if selected_movie['type'] == "电视剧":
-                                # 如果是电视剧，获取所有季数
+                                # 如果是电视剧，直接订阅所有季
                                 seasons = await self.api.list_all_seasons(selected_movie['tmdb_id'])
                                 if seasons:
-                                    season_list = "\n".join(
-                                        [f"第 {season['season_number']} 季 {season['name']}" for season in seasons])
-                                    season_list = "\n查询到的季如下\n请直接回复季数进行选择：\n" + season_list
-
                                     message_result = event.make_result()
-                                    message_result.chain = [Comp.Plain(season_list)]
+                                    message_result.chain = [Comp.Plain(f"正在订阅 {selected_movie['title']} 的所有季...")]
                                     await event.send(message_result)
 
-                                    # 继续等待用户选择季数
-                                    controller.keep(timeout=60, reset_timeout=True)
+                                    # 订阅所有季
+                                    result = await self.api.subscribe_all_seasons(selected_movie, seasons)
 
-                                    # 更新状态
-                                    self.state[user_id] = {
-                                        "selected_movie": selected_movie,
-                                        "seasons": seasons,
-                                        "waiting_for": "season"
-                                    }
+                                    message_result = event.make_result()
+                                    if result["success"] > 0:
+                                        msg = f"\n订阅类型：{selected_movie['type']}\n订阅影片：{selected_movie['title']} ({selected_movie['year']})\n✅ 成功订阅 {result['success']} 季"
+                                        if result["failed"] > 0:
+                                            msg += f"，{result['failed']} 季订阅失败（可能已订阅）"
+                                        message_result.chain = [Comp.Plain(msg)]
+                                    else:
+                                        message_result.chain = [Comp.Plain("订阅失败，可能已全部订阅。")]
+                                    await event.send(message_result)
+                                    controller.stop()
                                 else:
                                     message_result = event.make_result()
                                     message_result.chain = [Comp.Plain("没有找到可用的季数。")]

@@ -1,6 +1,6 @@
 name: astrbot_plugin_mpemby
 desc: MoviePilot 订阅与 Emby 入库查询插件
 help:
-version: v1.2.6
+version: v1.2.7
 author: ikirito
 repo: https://github.com/i-kirito/astrbot_plugin_mpemby

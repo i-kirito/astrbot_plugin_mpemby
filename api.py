@@ -112,6 +112,32 @@ class MoviepilotApi:
             logger.error(f"Error subscribing to series: {e}")
             return False
 
+    async def subscribe_all_seasons(self, movie: dict, seasons: list) -> dict:
+        """订阅电视剧的所有季
+
+        Args:
+            movie: 电视剧信息
+            seasons: 季度列表
+
+        Returns:
+            dict: {"success": int, "failed": int, "total": int}
+        """
+        result = {"success": 0, "failed": 0, "total": len(seasons)}
+
+        for season in seasons:
+            season_num = season.get('season_number', 0)
+            if season_num <= 0:  # 跳过特辑等（season 0）
+                result["total"] -= 1
+                continue
+
+            success = await self.subscribe_series(movie, season_num)
+            if success:
+                result["success"] += 1
+            else:
+                result["failed"] += 1
+
+        return result
+
     async def _request(
             self,
             url,
