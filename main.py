@@ -190,17 +190,7 @@ class MyPlugin(Star):
                 msg += f"，失败 {failed_count} 季"
 
         message_result = event.make_result()
-
-        # 添加引用回复
-        try:
-            if hasattr(event, 'message_obj') and hasattr(event.message_obj, 'message_id'):
-                message_result.chain = [Comp.Reply(id=str(event.message_obj.message_id))]
-            elif hasattr(event, 'message_id'):
-                message_result.chain = [Comp.Reply(id=str(event.message_id))]
-            else:
-                message_result.chain = []
-        except Exception:
-            message_result.chain = []
+        message_result.chain = []
 
         # 尝试发送卡片
         if enable_card and HAS_PILLOW:
