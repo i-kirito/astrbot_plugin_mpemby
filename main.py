@@ -4,6 +4,10 @@ from astrbot.api import logger
 from astrbot.api.all import *
 import time
 import asyncio
+import io
+import base64
+import tempfile
+import os
 from datetime import datetime
 import astrbot.api.message_components as Comp
 from astrbot.core.utils.session_waiter import (
@@ -11,6 +15,14 @@ from astrbot.core.utils.session_waiter import (
     SessionController,
 )
 from .api import MoviepilotApi, EmbyApi
+
+# 尝试导入 Pillow
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    HAS_PILLOW = True
+except ImportError:
+    HAS_PILLOW = False
+    logger.warning("Pillow 未安装，推送将使用纯文本模式。可通过 pip install Pillow 安装")
 
 try:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -20,7 +32,7 @@ except ImportError:
     HAS_APSCHEDULER = False
     logger.warning("apscheduler not found, daily report function disabled.")
 
-@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.2.5", "https://github.com/i-kirito/astrbot_plugin_mpemby")
+@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.2.6", "https://github.com/i-kirito/astrbot_plugin_mpemby")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -52,6 +64,93 @@ class MyPlugin(Star):
             logger.info(f"已启动每日入库推送任务，时间: {report_time}")
         except Exception as e:
             logger.error(f"启动定时任务失败: {e}")
+
+    def render_text_to_image(self, text: str) -> bytes:
+        """将文本渲染为图片，返回 PNG 字节数据"""
+        if not HAS_PILLOW:
+            return None
+
+        # 配置参数
+        padding = 40
+        line_spacing = 8
+        font_size = 28
+        bg_color = (30, 30, 35)  # 深色背景
+        text_color = (230, 230, 230)  # 浅色文字
+        accent_color = (100, 180, 255)  # 强调色
+        border_color = (60, 60, 70)
+
+        # 尝试加载字体
+        font = None
+        title_font = None
+        font_paths = [
+            "/System/Library/Fonts/PingFang.ttc",  # macOS
+            "/System/Library/Fonts/STHeiti Light.ttc",  # macOS 备选
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",  # Linux
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Linux 备选
+            "C:\\Windows\\Fonts\\msyh.ttc",  # Windows 微软雅黑
+            "C:\\Windows\\Fonts\\simhei.ttf",  # Windows 黑体
+        ]
+
+        for path in font_paths:
+            try:
+                if os.path.exists(path):
+                    font = ImageFont.truetype(path, font_size)
+                    title_font = ImageFont.truetype(path, font_size + 6)
+                    break
+            except Exception:
+                continue
+
+        if not font:
+            font = ImageFont.load_default()
+            title_font = font
+
+        # 计算图片尺寸
+        lines = text.split('\n')
+
+        # 创建临时图片计算文字宽度
+        temp_img = Image.new('RGB', (1, 1))
+        temp_draw = ImageDraw.Draw(temp_img)
+
+        max_width = 0
+        for line in lines:
+            bbox = temp_draw.textbbox((0, 0), line, font=font)
+            line_width = bbox[2] - bbox[0]
+            max_width = max(max_width, line_width)
+
+        img_width = max_width + padding * 2
+        img_height = len(lines) * (font_size + line_spacing) + padding * 2
+
+        # 确保最小宽度
+        img_width = max(img_width, 500)
+
+        # 创建图片
+        img = Image.new('RGB', (img_width, img_height), bg_color)
+        draw = ImageDraw.Draw(img)
+
+        # 绘制边框
+        draw.rectangle([2, 2, img_width - 3, img_height - 3], outline=border_color, width=2)
+
+        # 绘制顶部装饰线
+        draw.rectangle([0, 0, img_width, 4], fill=accent_color)
+
+        # 逐行绘制文本
+        y = padding
+        for i, line in enumerate(lines):
+            # 标题行使用强调色
+            if i == 0 or '━' in line:
+                color = accent_color
+                current_font = title_font if i == 0 else font
+            else:
+                color = text_color
+                current_font = font
+
+            draw.text((padding, y), line, font=current_font, fill=color)
+            y += font_size + line_spacing
+
+        # 转换为字节
+        buffer = io.BytesIO()
+        img.save(buffer, format='PNG', optimize=True)
+        return buffer.getvalue()
 
     async def send_daily_report(self, manual_trigger: bool = False, event: AstrMessageEvent = None):
         """发送每日入库简报
@@ -115,10 +214,128 @@ class MyPlugin(Star):
 
         msg = msg.strip()
 
+        # 尝试渲染为图片发送
+        if HAS_PILLOW:
+            try:
+                img_bytes = self.render_text_to_image(msg)
+                if img_bytes:
+                    # 保存到临时文件
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+                        f.write(img_bytes)
+                        tmp_path = f.name
+
+                    if manual_trigger and event:
+                        message_result = event.make_result()
+                        message_result.chain = [Comp.Image.fromFileSystem(tmp_path)]
+                        await event.send(message_result)
+                    else:
+                        await self._send_image_to_target(target_id, tmp_path)
+
+                    # 清理临时文件
+                    try:
+                        os.unlink(tmp_path)
+                    except Exception:
+                        pass
+                    return
+            except Exception as e:
+                logger.warning(f"图片渲染失败，回退到文本模式: {e}")
+
+        # 回退到纯文本模式
         if manual_trigger and event:
             await event.send(event.plain_result(msg))
         else:
             await self._send_to_target(target_id, msg)
+
+    async def _send_image_to_target(self, target_id: str, image_path: str):
+        """发送图片到指定目标"""
+        sent = False
+        platform_name = None
+        user_id = target_id
+
+        if ":" in target_id:
+            platform_name, user_id = target_id.split(":", 1)
+
+        logger.info(f"准备推送图片，目标: {target_id}")
+
+        try:
+            platforms = []
+            if hasattr(self.context, 'platform_manager'):
+                pm = self.context.platform_manager
+                if hasattr(pm, 'get_insts'):
+                    platforms = pm.get_insts()
+                elif hasattr(pm, 'platforms'):
+                    platforms = pm.platforms
+                elif hasattr(pm, 'adapters'):
+                    platforms = pm.adapters
+
+            if not platforms:
+                logger.error("未找到任何平台实例")
+                return False
+
+            for platform in platforms:
+                curr_platform_name = getattr(platform, "platform_name", str(platform))
+                if platform_name and curr_platform_name != platform_name:
+                    continue
+
+                bot_client = None
+                if hasattr(platform, 'get_client'):
+                    bot_client = platform.get_client()
+                elif hasattr(platform, 'client'):
+                    bot_client = platform.client
+                elif hasattr(platform, 'bot'):
+                    bot_client = platform.bot
+
+                try:
+                    uid_int = int(user_id)
+                except ValueError:
+                    uid_int = None
+
+                # 读取图片并编码
+                with open(image_path, 'rb') as f:
+                    img_data = f.read()
+                img_base64 = base64.b64encode(img_data).decode()
+
+                call_action = None
+                if bot_client:
+                    if hasattr(bot_client, 'call_action'):
+                        call_action = bot_client.call_action
+                    elif hasattr(bot_client, 'api') and hasattr(bot_client.api, 'call_action'):
+                        call_action = bot_client.api.call_action
+
+                if call_action and uid_int:
+                    message_payload = [{"type": "image", "data": {"file": f"base64://{img_base64}"}}]
+
+                    try:
+                        await call_action("send_private_msg", user_id=uid_int, message=message_payload)
+                        logger.info(f"✅ 图片私聊推送成功")
+                        sent = True
+                        break
+                    except Exception:
+                        pass
+
+                    try:
+                        await call_action("send_group_msg", group_id=uid_int, message=message_payload)
+                        logger.info(f"✅ 图片群聊推送成功")
+                        sent = True
+                        break
+                    except Exception:
+                        pass
+
+                if not sent and hasattr(platform, "send_msg"):
+                    chain = [Comp.Image.fromFileSystem(image_path)]
+                    try:
+                        await platform.send_msg(uid_int if uid_int else user_id, chain)
+                        logger.info("✅ 标准接口图片推送成功")
+                        sent = True
+                        break
+                    except Exception as e:
+                        logger.warning(f"标准接口发送失败: {e}")
+
+            return sent
+
+        except Exception as e:
+            logger.error(f"图片推送错误: {e}")
+            return False
 
     async def _send_to_target(self, target_id: str, msg: str):
         """发送消息到指定目标 (增强版)"""

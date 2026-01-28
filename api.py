@@ -381,7 +381,7 @@ class EmbyApi:
             return stats
 
     async def get_today_additions_stats(self) -> dict:
-        """获取今日入库统计及详情 (从今日0点开始)"""
+        """获取今日入库统计及详情 (从今日0点开始)，同一剧集的集数会合并显示"""
         if not self.is_configured():
             return {}
 
@@ -414,46 +414,86 @@ class EmbyApi:
                     if itype in result["stats"]:
                         result["stats"][itype] += 1
 
-                # 获取详情列表 (只取前 15 条展示，避免消息过长)
-                # 过滤掉 Episode，除非只有 Episode，或者按 Series 分组显示
-                # 为了简单直观，这里混合显示，但优先显示 Movie 和 Series
-                # 如果是 Episode，尝试显示 SeriesName
+                # 分类处理：电影、剧集、单集
+                movies = []
+                series_map = {}  # 用于合并同一剧集的不同集数
+                new_series = []  # 新入库的剧集本身
 
-                display_items = items[:20]
-                for item in display_items:
-                    name = item.get('Name', '未知')
-                    series_name = item.get('SeriesName', '')
+                for item in items:
                     itype = item.get('Type')
+                    name = item.get('Name', '未知')
                     year = item.get('ProductionYear', '')
 
-                    type_cn = {
-                        "Movie": "电影",
-                        "Series": "剧集",
-                        "Episode": "单集"
-                    }.get(itype, itype)
+                    if itype == "Movie":
+                        movies.append(f"🎬 {name} ({year})" if year else f"🎬 {name}")
 
-                    item_str = ""
-                    if itype == "Episode" and series_name:
-                        # 如果是单集，显示 "剧集名 - 单集名"
-                        index_number = item.get('IndexNumber', '')
-                        parent_index = item.get('ParentIndexNumber', '') # 季号
-                        season_str = f"S{parent_index}" if parent_index else ""
-                        ep_str = f"E{index_number}" if index_number else ""
-                        item_str = f"📺 {series_name} {season_str}{ep_str} - {name}"
                     elif itype == "Series":
-                        item_str = f"📺 {name} ({year})"
-                    elif itype == "Movie":
-                        item_str = f"🎬 {name} ({year})"
-                    else:
-                        item_str = f"📄 {name}"
+                        new_series.append(f"📺 {name} ({year})" if year else f"📺 {name}")
 
-                    result["items"].append(item_str)
+                    elif itype == "Episode":
+                        series_name = item.get('SeriesName', '未知剧集')
+                        series_id = item.get('SeriesId', series_name)
+                        season_num = item.get('ParentIndexNumber', 0)
+                        ep_num = item.get('IndexNumber', 0)
+
+                        # 按 series_id + season 分组
+                        key = f"{series_id}_S{season_num}"
+                        if key not in series_map:
+                            series_map[key] = {
+                                'name': series_name,
+                                'season': season_num,
+                                'episodes': []
+                            }
+                        if ep_num:
+                            series_map[key]['episodes'].append(ep_num)
+
+                # 构建合并后的剧集列表
+                merged_series = []
+                for key, info in series_map.items():
+                    eps = sorted(info['episodes'])
+                    if eps:
+                        # 合并连续集数，如 [1,2,3,5,6] -> "E1-E3, E5-E6"
+                        ep_ranges = self._merge_episode_ranges(eps)
+                        season_str = f"S{info['season']}" if info['season'] else ""
+                        merged_series.append(f"📺 {info['name']} {season_str} {ep_ranges}")
+                    else:
+                        merged_series.append(f"📺 {info['name']}")
+
+                # 组合最终列表：电影 -> 新剧集 -> 合并后的单集
+                result["items"] = movies + new_series + merged_series
 
             return result
 
         except Exception as e:
             logger.error(f"获取今日入库统计失败: {e}")
             return {}
+
+    def _merge_episode_ranges(self, episodes: list) -> str:
+        """将集数列表合并为范围字符串，如 [1,2,3,5,6] -> 'E1-E3, E5-E6'"""
+        if not episodes:
+            return ""
+
+        episodes = sorted(set(episodes))
+        ranges = []
+        start = end = episodes[0]
+
+        for ep in episodes[1:]:
+            if ep == end + 1:
+                end = ep
+            else:
+                if start == end:
+                    ranges.append(f"E{start}")
+                else:
+                    ranges.append(f"E{start}-E{end}")
+                start = end = ep
+
+        # 添加最后一个范围
+        if start == end:
+            ranges.append(f"E{start}")
+        else:
+            ranges.append(f"E{start}-E{end}")
+
+        return ", ".join(ranges)
 
     def _format_date(self, date_str: str) -> str:
         """格式化日期字符串"""
