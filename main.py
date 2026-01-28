@@ -243,9 +243,9 @@ class MyPlugin(Star):
         # 添加引用回复
         try:
             if hasattr(event, 'message_obj') and hasattr(event.message_obj, 'message_id'):
-                message_result.chain = [Comp.Reply(event.message_obj.message_id)]
+                message_result.chain = [Comp.Reply(id=str(event.message_obj.message_id))]
             elif hasattr(event, 'message_id'):
-                message_result.chain = [Comp.Reply(event.message_id)]
+                message_result.chain = [Comp.Reply(id=str(event.message_id))]
             else:
                 message_result.chain = []
         except Exception:
@@ -780,7 +780,7 @@ class MyPlugin(Star):
                 logger.info(f"[引用回复] 获取到的 message_id: {msg_id}")
 
                 if msg_id:
-                    message_result.chain = [Comp.Reply(msg_id)]
+                    message_result.chain = [Comp.Reply(id=str(msg_id))]
                 else:
                     message_result.chain = []
             except Exception as e:
