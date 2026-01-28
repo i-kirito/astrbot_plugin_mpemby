@@ -1,10 +1,4 @@
 {
-    "enable_subscribe_card": {
-        "description": "订阅成功后发送卡片通知",
-        "type": "bool",
-        "default": true,
-        "hint": "订阅成功后是否发送图片卡片形式的通知"
-    },
     "mp_url": {
         "description": "MoviePilotUrl",
         "type": "string",
@@ -24,6 +18,24 @@
         "description": "MoviePilot密码",
         "type": "string",
         "secret": true
+    },
+    "enable_subscribe_card": {
+        "description": "订阅成功后发送卡片通知",
+        "type": "bool",
+        "default": true,
+        "hint": "订阅成功后是否发送图片卡片形式的通知"
+    },
+    "enable_whitelist": {
+        "description": "开启订阅白名单",
+        "type": "bool",
+        "default": false,
+        "hint": "开启后仅白名单用户可使用订阅功能"
+    },
+    "subscribe_whitelist": {
+        "description": "订阅白名单",
+        "type": "string",
+        "default": "",
+        "hint": "允许使用订阅功能的用户ID，多个用逗号分隔"
     },
     "emby_url": {
         "description": "Emby服务器地址",

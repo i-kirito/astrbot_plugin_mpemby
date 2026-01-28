@@ -451,10 +451,10 @@ class EmbyApi:
                     year = item.get('ProductionYear', '')
 
                     if itype == "Movie":
-                        movies.append(f"🎬 {name} ({year})" if year else f"🎬 {name}")
+                        movies.append(f"[电影] {name} ({year})" if year else f"[电影] {name}")
 
                     elif itype == "Series":
-                        new_series.append(f"📺 {name} ({year})" if year else f"📺 {name}")
+                        new_series.append(f"[剧集] {name} ({year})" if year else f"[剧集] {name}")
 
                     elif itype == "Episode":
                         series_name = item.get('SeriesName', '未知剧集')
@@ -481,9 +481,9 @@ class EmbyApi:
                         # 合并连续集数，如 [1,2,3,5,6] -> "E1-E3, E5-E6"
                         ep_ranges = self._merge_episode_ranges(eps)
                         season_str = f"S{info['season']}" if info['season'] else ""
-                        merged_series.append(f"📺 {info['name']} {season_str} {ep_ranges}")
+                        merged_series.append(f"[剧集] {info['name']} {season_str} {ep_ranges}")
                     else:
-                        merged_series.append(f"📺 {info['name']}")
+                        merged_series.append(f"[剧集] {info['name']}")
 
                 # 组合最终列表：电影 -> 新剧集 -> 合并后的单集
                 result["items"] = movies + new_series + merged_series

@@ -49,25 +49,26 @@ class MyPlugin(Star):
         logger.info(f"插件初始化完成，Emby配置状态: {'已配置' if self.emby_api.is_configured() else '未配置'}")
 
     def render_subscribe_card(self, media_info: dict, success_count: int = 0, failed_count: int = 0, is_movie: bool = False) -> bytes:
-        """渲染订阅成功卡片 - 现代风格"""
+        """渲染订阅成功卡片 - 现代风格（无 emoji）"""
         if not HAS_PILLOW:
             return None
 
         # 配置参数
         padding = 40
-        font_size = 26
-        title_font_size = 36
-        small_font_size = 20
+        font_size = 24
+        title_font_size = 32
+        small_font_size = 18
 
         # 现代配色方案
         bg_gradient_top = (45, 55, 72)      # 深蓝灰
         bg_gradient_bottom = (26, 32, 44)   # 更深的蓝灰
         accent_color = (72, 187, 120)       # 清新绿色
         title_color = (255, 255, 255)       # 白色标题
-        text_color = (226, 232, 240)        # 浅灰文字
         muted_color = (160, 174, 192)       # 灰色次要文字
         success_badge_bg = (72, 187, 120)   # 成功徽章背景
         card_bg = (55, 65, 81)              # 卡片内容区背景
+        tag_movie_bg = (59, 130, 246)       # 电影标签背景（蓝色）
+        tag_series_bg = (168, 85, 247)      # 剧集标签背景（紫色）
 
         # 加载字体
         font = None
@@ -101,16 +102,15 @@ class MyPlugin(Star):
         title = media_info.get('title', '未知')
         year = media_info.get('year', '')
         media_type = media_info.get('type', '电影')
-        icon = "📺" if media_type == "电视剧" else "🎬"
 
         # 计算尺寸
-        img_width = 480
-        header_height = 70
-        content_padding = 25
-        line_height = 40
+        img_width = 420
+        header_height = 60
+        content_padding = 20
+        line_height = 36
         content_lines = 3 if is_movie else 4
         content_height = content_lines * line_height + content_padding * 2
-        img_height = padding + header_height + 20 + content_height + padding
+        img_height = padding + header_height + 15 + content_height + padding
 
         # 创建图片 - 渐变背景
         img = Image.new('RGB', (img_width, img_height), bg_gradient_top)
@@ -125,13 +125,13 @@ class MyPlugin(Star):
             draw.line([(0, y), (img_width, y)], fill=(r, g, b))
 
         # 绘制顶部装饰条
-        draw.rectangle([0, 0, img_width, 5], fill=accent_color)
+        draw.rectangle([0, 0, img_width, 4], fill=accent_color)
 
         # 绘制成功徽章
         badge_y = padding
-        badge_text = "✓ 订阅成功"
-        draw.rounded_rectangle([padding, badge_y, padding + 160, badge_y + 45], radius=22, fill=success_badge_bg)
-        draw.text((padding + 20, badge_y + 8), badge_text, font=font, fill=title_color)
+        badge_text = "订阅成功"
+        draw.rounded_rectangle([padding, badge_y, padding + 120, badge_y + 38], radius=19, fill=success_badge_bg)
+        draw.text((padding + 18, badge_y + 7), badge_text, font=font, fill=title_color)
 
         # 绘制内容卡片区域
         card_y = badge_y + header_height
@@ -139,15 +139,14 @@ class MyPlugin(Star):
         card_width = img_width - padding * 2
         draw.rounded_rectangle(
             [card_x, card_y, card_x + card_width, card_y + content_height],
-            radius=12,
+            radius=10,
             fill=card_bg
         )
 
         # 绘制媒体标题
         content_y = card_y + content_padding
-        title_text = f"{icon}  {title}"
-        draw.text((card_x + content_padding, content_y), title_text, font=title_font, fill=title_color)
-        content_y += line_height + 10
+        draw.text((card_x + content_padding, content_y), title, font=title_font, fill=title_color)
+        content_y += line_height + 8
 
         # 绘制分隔线
         draw.line(
@@ -155,23 +154,30 @@ class MyPlugin(Star):
             fill=(75, 85, 99),
             width=1
         )
-        content_y += 15
+        content_y += 12
 
-        # 绘制详情信息
-        info_items = []
+        # 绘制类型标签
+        tag_bg = tag_series_bg if media_type == "电视剧" else tag_movie_bg
+        tag_text = f"[{media_type}]"
+        draw.rounded_rectangle(
+            [card_x + content_padding, content_y, card_x + content_padding + 70, content_y + 26],
+            radius=4,
+            fill=tag_bg
+        )
+        draw.text((card_x + content_padding + 8, content_y + 3), tag_text, font=small_font, fill=title_color)
+
+        # 绘制年份
         if year:
-            info_items.append(f"📅  {year}年")
-        info_items.append(f"🏷️  {media_type}")
+            year_text = f"{year}年"
+            draw.text((card_x + content_padding + 80, content_y + 3), year_text, font=small_font, fill=muted_color)
+        content_y += line_height
 
+        # 绘制季数信息（电视剧）
         if not is_movie and success_count > 0:
-            season_text = f"📚  成功订阅 {success_count} 季"
+            season_text = f"已订阅 {success_count} 季"
             if failed_count > 0:
-                season_text += f" · {failed_count} 季已存在"
-            info_items.append(season_text)
-
-        for item in info_items:
-            draw.text((card_x + content_padding, content_y), item, font=small_font, fill=muted_color)
-            content_y += line_height - 5
+                season_text += f" / {failed_count} 季已存在"
+            draw.text((card_x + content_padding, content_y), season_text, font=small_font, fill=muted_color)
 
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
@@ -248,37 +254,48 @@ class MyPlugin(Star):
         except Exception as e:
             logger.error(f"启动定时任务失败: {e}")
 
-    def render_text_to_image(self, text: str) -> bytes:
-        """将文本渲染为图片，返回 PNG 字节数据"""
+    def render_daily_report_card(self, stats: dict, items: list, date_str: str) -> bytes:
+        """渲染每日入库日报卡片 - 现代风格（无 emoji）"""
         if not HAS_PILLOW:
             return None
 
         # 配置参数
-        padding = 40
-        line_spacing = 8
-        font_size = 28
-        bg_color = (30, 30, 35)  # 深色背景
-        text_color = (230, 230, 230)  # 浅色文字
-        accent_color = (100, 180, 255)  # 强调色
-        border_color = (60, 60, 70)
+        padding = 30
+        font_size = 20
+        title_font_size = 28
+        small_font_size = 16
 
-        # 尝试加载字体
+        # 现代配色方案
+        bg_gradient_top = (30, 41, 59)      # 深蓝
+        bg_gradient_bottom = (15, 23, 42)   # 更深的蓝
+        accent_color = (56, 189, 248)       # 天蓝色
+        title_color = (255, 255, 255)       # 白色
+        text_color = (203, 213, 225)        # 浅灰
+        muted_color = (148, 163, 184)       # 灰色
+        card_bg = (51, 65, 85)              # 卡片背景
+        movie_color = (251, 191, 36)        # 电影 - 金色
+        series_color = (167, 139, 250)      # 剧集 - 紫色
+        episode_color = (74, 222, 128)      # 单集 - 绿色
+
+        # 加载字体
         font = None
         title_font = None
+        small_font = None
         font_paths = [
-            "/System/Library/Fonts/PingFang.ttc",  # macOS
-            "/System/Library/Fonts/STHeiti Light.ttc",  # macOS 备选
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",  # Linux
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Linux 备选
-            "C:\\Windows\\Fonts\\msyh.ttc",  # Windows 微软雅黑
-            "C:\\Windows\\Fonts\\simhei.ttf",  # Windows 黑体
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "C:\\Windows\\Fonts\\msyh.ttc",
+            "C:\\Windows\\Fonts\\simhei.ttf",
         ]
 
         for path in font_paths:
             try:
                 if os.path.exists(path):
                     font = ImageFont.truetype(path, font_size)
-                    title_font = ImageFont.truetype(path, font_size + 6)
+                    title_font = ImageFont.truetype(path, title_font_size)
+                    small_font = ImageFont.truetype(path, small_font_size)
                     break
             except Exception:
                 continue
@@ -286,51 +303,112 @@ class MyPlugin(Star):
         if not font:
             font = ImageFont.load_default()
             title_font = font
+            small_font = font
 
-        # 计算图片尺寸
-        lines = text.split('\n')
+        # 计算尺寸
+        img_width = 400
+        header_height = 70
+        stats_height = 50
+        item_height = 28
+        items_to_show = min(len(items), 10)
+        items_section_height = items_to_show * item_height + 40 if items_to_show > 0 else 0
+        img_height = padding + header_height + stats_height + items_section_height + padding + 20
 
-        # 创建临时图片计算文字宽度
-        temp_img = Image.new('RGB', (1, 1))
-        temp_draw = ImageDraw.Draw(temp_img)
-
-        max_width = 0
-        for line in lines:
-            bbox = temp_draw.textbbox((0, 0), line, font=font)
-            line_width = bbox[2] - bbox[0]
-            max_width = max(max_width, line_width)
-
-        img_width = max_width + padding * 2
-        img_height = len(lines) * (font_size + line_spacing) + padding * 2
-
-        # 确保最小宽度
-        img_width = max(img_width, 500)
-
-        # 创建图片
-        img = Image.new('RGB', (img_width, img_height), bg_color)
+        # 创建图片 - 渐变背景
+        img = Image.new('RGB', (img_width, img_height), bg_gradient_top)
         draw = ImageDraw.Draw(img)
 
-        # 绘制边框
-        draw.rectangle([2, 2, img_width - 3, img_height - 3], outline=border_color, width=2)
+        # 绘制渐变背景
+        for y in range(img_height):
+            ratio = y / img_height
+            r = int(bg_gradient_top[0] * (1 - ratio) + bg_gradient_bottom[0] * ratio)
+            g = int(bg_gradient_top[1] * (1 - ratio) + bg_gradient_bottom[1] * ratio)
+            b = int(bg_gradient_top[2] * (1 - ratio) + bg_gradient_bottom[2] * ratio)
+            draw.line([(0, y), (img_width, y)], fill=(r, g, b))
 
-        # 绘制顶部装饰线
+        # 绘制顶部装饰条
         draw.rectangle([0, 0, img_width, 4], fill=accent_color)
 
-        # 逐行绘制文本
-        y = padding
-        for i, line in enumerate(lines):
-            # 标题行使用强调色
-            if i == 0 or '━' in line:
-                color = accent_color
-                current_font = title_font if i == 0 else font
-            else:
-                color = text_color
-                current_font = font
+        # 绘制标题区域
+        current_y = padding
+        draw.text((padding, current_y), "Emby 今日入库日报", font=title_font, fill=title_color)
+        current_y += title_font_size + 5
+        draw.text((padding, current_y), date_str, font=small_font, fill=muted_color)
+        current_y += 35
 
-            draw.text((padding, y), line, font=current_font, fill=color)
-            y += font_size + line_spacing
+        # 绘制分隔线
+        draw.line([(padding, current_y), (img_width - padding, current_y)], fill=(71, 85, 105), width=1)
+        current_y += 15
 
-        # 转换为字节
+        # 绘制统计卡片区
+        movie_count = stats.get("Movie", 0)
+        series_count = stats.get("Series", 0)
+        episode_count = stats.get("Episode", 0)
+
+        stat_items = []
+        if movie_count > 0:
+            stat_items.append(("电影", movie_count, "部", movie_color))
+        if series_count > 0:
+            stat_items.append(("剧集", series_count, "部", series_color))
+        if episode_count > 0:
+            stat_items.append(("单集", episode_count, "集", episode_color))
+
+        if stat_items:
+            stat_width = (img_width - padding * 2 - 10 * (len(stat_items) - 1)) // len(stat_items)
+            stat_x = padding
+            for label, count, unit, color in stat_items:
+                draw.rounded_rectangle(
+                    [stat_x, current_y, stat_x + stat_width, current_y + 40],
+                    radius=6,
+                    fill=card_bg
+                )
+                # 数字
+                count_text = str(count)
+                draw.text((stat_x + 12, current_y + 8), count_text, font=title_font, fill=color)
+                # 标签
+                label_text = f"{label} {unit}"
+                draw.text((stat_x + 50, current_y + 14), label_text, font=small_font, fill=muted_color)
+                stat_x += stat_width + 10
+            current_y += 55
+
+        # 绘制入库详情
+        if items_to_show > 0:
+            draw.text((padding, current_y), "入库详情", font=font, fill=text_color)
+            current_y += 30
+
+            for i, item_str in enumerate(items[:items_to_show]):
+                # 移除可能的 emoji 前缀
+                clean_item = item_str
+                for prefix in ["[电影] ", "[剧集] "]:
+                    if clean_item.startswith(prefix):
+                        clean_item = clean_item[len(prefix):]
+                        break
+
+                # 判断类型并添加标签
+                if item_str.startswith("[电影]"):
+                    tag_text = "电影"
+                    tag_color = movie_color
+                else:
+                    tag_text = "剧集"
+                    tag_color = series_color
+
+                # 绘制序号
+                draw.text((padding, current_y), f"{i+1}.", font=small_font, fill=muted_color)
+                # 绘制标签
+                draw.rounded_rectangle(
+                    [padding + 25, current_y, padding + 60, current_y + 20],
+                    radius=3,
+                    fill=tag_color
+                )
+                draw.text((padding + 28, current_y + 2), tag_text, font=small_font, fill=(30, 30, 30))
+                # 绘制名称
+                draw.text((padding + 70, current_y), clean_item[:20] + ("..." if len(clean_item) > 20 else ""), font=small_font, fill=text_color)
+                current_y += item_height
+
+            # 如果有更多
+            if len(items) > items_to_show:
+                draw.text((padding, current_y), f"...等共 {len(items)} 条记录", font=small_font, fill=muted_color)
+
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
         return buffer.getvalue()
@@ -342,16 +420,16 @@ class MyPlugin(Star):
             manual_trigger: 是否为手动触发
             event: 触发事件对象 (仅手动触发时存在)
         """
+        target_id = None
         # 如果是手动触发且有 event，优先使用 event 发送，这样最稳
         if manual_trigger and event:
             logger.info("使用当前会话直接发送日报")
         else:
             target_id = self.config.get("report_target_id")
             if not target_id:
-                msg = "⚠️ 未配置推送目标ID (report_target_id)，请使用 /emby推送配置 target <id> 进行设置"
+                msg = "未配置推送目标ID，请使用 /emby推送配置 target <id> 进行设置"
                 logger.warning(msg)
                 if manual_trigger and event:
-                   # 修复：移除 yield，改用 await event.send
                    await event.send(event.plain_result(msg))
                 return
 
@@ -362,45 +440,22 @@ class MyPlugin(Star):
         items = data.get("items", [])
         total = stats.get("Total", 0)
 
+        date_str = datetime.now().strftime('%Y-%m-%d')
+
         if total == 0:
             logger.info("今日无新入库")
             if manual_trigger:
-                msg = f"📅 {datetime.now().strftime('%Y-%m-%d')}\n今日暂无新入库内容。"
+                msg = f"{date_str}\n今日暂无新入库内容。"
                 if event:
                     await event.send(event.plain_result(msg))
                 elif target_id:
                     await self._send_to_target(target_id, msg)
             return
 
-        # 构建消息内容
-        date_str = datetime.now().strftime('%Y-%m-%d')
-        msg = f"📢 Emby 今日入库日报 ({date_str})\n"
-        msg += "━━━━━━━━━━━━\n"
-
-        # 1. 统计摘要
-        if stats.get("Movie", 0) > 0:
-            msg += f"🎬 电影新增：{stats['Movie']} 部\n"
-        if stats.get("Series", 0) > 0:
-            msg += f"📺 剧集新增：{stats['Series']} 部\n"
-        if stats.get("Episode", 0) > 0:
-            msg += f"🎞️ 单集新增：{stats['Episode']} 集\n"
-        msg += "━━━━━━━━━━━━\n"
-
-        # 2. 详情列表
-        if items:
-            msg += "📚 最近入库详情：\n"
-            for i, item_str in enumerate(items, 1):
-                msg += f"{i}. {item_str}\n"
-
-            if total > len(items):
-                msg += f"...等共 {total} 条记录"
-
-        msg = msg.strip()
-
         # 尝试渲染为图片发送
         if HAS_PILLOW:
             try:
-                img_bytes = self.render_text_to_image(msg)
+                img_bytes = self.render_daily_report_card(stats, items, date_str)
                 if img_bytes:
                     # 保存到临时文件
                     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
@@ -424,10 +479,25 @@ class MyPlugin(Star):
                 logger.warning(f"图片渲染失败，回退到文本模式: {e}")
 
         # 回退到纯文本模式
+        msg = f"Emby 今日入库日报 ({date_str})\n"
+        msg += "---\n"
+        if stats.get("Movie", 0) > 0:
+            msg += f"电影新增：{stats['Movie']} 部\n"
+        if stats.get("Series", 0) > 0:
+            msg += f"剧集新增：{stats['Series']} 部\n"
+        if stats.get("Episode", 0) > 0:
+            msg += f"单集新增：{stats['Episode']} 集\n"
+        if items:
+            msg += "---\n入库详情：\n"
+            for i, item_str in enumerate(items[:10], 1):
+                msg += f"{i}. {item_str}\n"
+            if len(items) > 10:
+                msg += f"...等共 {len(items)} 条记录"
+
         if manual_trigger and event:
-            await event.send(event.plain_result(msg))
+            await event.send(event.plain_result(msg.strip()))
         else:
-            await self._send_to_target(target_id, msg)
+            await self._send_to_target(target_id, msg.strip())
 
     async def _send_image_to_target(self, target_id: str, image_path: str):
         """发送图片到指定目标"""
@@ -639,6 +709,15 @@ class MyPlugin(Star):
     @filter.command("mp订阅")
     async def sub(self, event: AstrMessageEvent, message: str):
         '''订阅影片'''
+        # 白名单权限检查
+        if self.config.get("enable_whitelist", False):
+            sender_id = str(event.get_sender_id())
+            whitelist_str = self.config.get("subscribe_whitelist", "")
+            whitelist = [uid.strip() for uid in whitelist_str.split(",") if uid.strip()]
+            if sender_id not in whitelist:
+                yield event.plain_result("您没有使用订阅功能的权限，请联系管理员添加白名单。")
+                return
+
         movies = await self.api.search_media_info(message)  # 使用 self.api 访问实例属性
         if movies:
             movie_list = "\n".join([f"{i + 1}. {movie['title']} ({movie['year']})" for i, movie in enumerate(movies)])
@@ -1103,7 +1182,116 @@ class MyPlugin(Star):
 
         except Exception as e:
             logger.error(f"修改配置失败: {e}")
-            yield event.plain_result(f"❌ 配置修改失败: {str(e)}")
+            yield event.plain_result(f"配置修改失败: {str(e)}")
+
+    @filter.command("mp白名单")
+    async def manage_whitelist(self, event: AstrMessageEvent, action: str = "", user_id: str = ""):
+        '''管理订阅白名单
+
+        参数:
+            action: 操作指令 (add/del/list/on/off)
+            user_id: 用户ID
+        '''
+        # 鉴权：仅管理员可用
+        is_admin = False
+        try:
+            if hasattr(event, "is_admin"):
+                if callable(event.is_admin):
+                    is_admin = event.is_admin()
+                else:
+                    is_admin = bool(event.is_admin)
+
+            if not is_admin:
+                role = getattr(event, "role", None)
+                if isinstance(role, str) and role.lower() == "admin":
+                    is_admin = True
+
+            if not is_admin:
+                sender_id = str(event.get_sender_id())
+                astrbot_config = self.context.get_config()
+                for key in ("admins", "admin_ids", "admin_list", "superusers"):
+                    ids = astrbot_config.get(key, [])
+                    if isinstance(ids, (list, tuple, set)) and sender_id in {str(i) for i in ids}:
+                        is_admin = True
+                        break
+        except:
+            pass
+
+        if not is_admin:
+            yield event.plain_result("仅管理员可执行此操作")
+            return
+
+        whitelist_str = self.config.get("subscribe_whitelist", "")
+        whitelist = [uid.strip() for uid in whitelist_str.split(",") if uid.strip()]
+        enable_whitelist = self.config.get("enable_whitelist", False)
+
+        if not action:
+            # 显示当前配置
+            status = "已开启" if enable_whitelist else "已关闭"
+            user_list = "\n".join([f"  - {uid}" for uid in whitelist]) if whitelist else "  (空)"
+
+            msg = f"""订阅白名单管理
+---
+状态：{status}
+白名单用户：
+{user_list}
+---
+指令说明：
+/mp白名单 on       - 开启白名单
+/mp白名单 off      - 关闭白名单
+/mp白名单 add <ID> - 添加用户
+/mp白名单 del <ID> - 移除用户
+/mp白名单 list     - 查看列表
+"""
+            yield event.plain_result(msg)
+            return
+
+        action = action.lower()
+
+        try:
+            if action == "on":
+                self.config["enable_whitelist"] = True
+                yield event.plain_result("已开启订阅白名单")
+
+            elif action == "off":
+                self.config["enable_whitelist"] = False
+                yield event.plain_result("已关闭订阅白名单")
+
+            elif action == "list":
+                if whitelist:
+                    user_list = "\n".join([f"{i+1}. {uid}" for i, uid in enumerate(whitelist)])
+                    yield event.plain_result(f"白名单用户列表：\n{user_list}")
+                else:
+                    yield event.plain_result("白名单为空")
+
+            elif action == "add":
+                if not user_id:
+                    yield event.plain_result("请输入用户ID，例如: /mp白名单 add 123456")
+                    return
+                if user_id in whitelist:
+                    yield event.plain_result(f"用户 {user_id} 已在白名单中")
+                else:
+                    whitelist.append(user_id)
+                    self.config["subscribe_whitelist"] = ",".join(whitelist)
+                    yield event.plain_result(f"已添加用户 {user_id} 到白名单")
+
+            elif action == "del":
+                if not user_id:
+                    yield event.plain_result("请输入用户ID，例如: /mp白名单 del 123456")
+                    return
+                if user_id in whitelist:
+                    whitelist.remove(user_id)
+                    self.config["subscribe_whitelist"] = ",".join(whitelist)
+                    yield event.plain_result(f"已从白名单移除用户 {user_id}")
+                else:
+                    yield event.plain_result(f"用户 {user_id} 不在白名单中")
+
+            else:
+                yield event.plain_result(f"未知指令: {action}")
+
+        except Exception as e:
+            logger.error(f"白名单操作失败: {e}")
+            yield event.plain_result(f"操作失败: {str(e)}")
 
     @filter.command("订阅帮助")
     async def show_help(self, event: AstrMessageEvent):
