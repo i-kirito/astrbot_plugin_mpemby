@@ -20,7 +20,7 @@ except ImportError:
     HAS_APSCHEDULER = False
     logger.warning("apscheduler not found, daily report function disabled.")
 
-@register("MoviepilotSubscribe", "4Nest", "MoviePilot订阅 & Emby入库查询插件", "1.2.1", "https://github.com/i-kirito/astrbot_plugin_mpemby")
+@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.2.5", "https://github.com/i-kirito/astrbot_plugin_mpemby")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -369,6 +369,88 @@ class MyPlugin(Star):
         else:
             yield event.plain_result("没有查询到影片，请检查名字。")
 
+    @filter.command("mp当前订阅")
+    async def current_subscribes(self, event: AstrMessageEvent):
+        '''查看当前订阅列表（仅显示订阅中的）'''
+        subscribes = await self.api.get_subscribes()
+        if subscribes is None:
+            yield event.plain_result("获取订阅列表失败，请检查 MoviePilot 配置。")
+            return
+
+        if len(subscribes) == 0:
+            yield event.plain_result("当前没有订阅。")
+            return
+
+        # 分类整理订阅（只保留订阅中的，过滤已完成的）
+        movies = []
+        series = []
+
+        for sub in subscribes:
+            state = sub.get('state', '')
+            # 只显示订阅中的，跳过已完成的
+            if state == '已完成' or state == 'completed':
+                continue
+
+            sub_type = sub.get('type', '')
+            name = sub.get('name', '未知')
+            year = sub.get('year', '')
+            sub_id = sub.get('id', '')
+
+            if sub_type == '电影':
+                movies.append({
+                    'name': name,
+                    'year': year,
+                    'id': sub_id,
+                    'state': state
+                })
+            else:
+                season = sub.get('season', 1)
+                total_episode = sub.get('total_episode', 0)
+                lack_episode = sub.get('lack_episode', 0)
+                series.append({
+                    'name': name,
+                    'year': year,
+                    'season': season,
+                    'total_episode': total_episode,
+                    'lack_episode': lack_episode,
+                    'id': sub_id,
+                    'state': state
+                })
+
+        # 格式化输出
+        result_lines = ["📋 当前订阅列表\n"]
+        result_lines.append("━━━━━━━━━━━━━━━━━━━━")
+
+        if movies:
+            result_lines.append("\n🎬 电影订阅：")
+            for i, m in enumerate(movies, 1):
+                year_str = f" ({m['year']})" if m['year'] else ""
+                state_str = f" [{m['state']}]" if m['state'] else ""
+                result_lines.append(f"  {i}. {m['name']}{year_str}{state_str}")
+
+        if series:
+            result_lines.append("\n📺 剧集订阅：")
+            for i, s in enumerate(series, 1):
+                year_str = f" ({s['year']})" if s['year'] else ""
+                season_str = f" 第{s['season']}季" if s['season'] else ""
+
+                # 计算进度
+                total = s['total_episode']
+                lack = s['lack_episode']
+                if total > 0:
+                    downloaded = total - lack
+                    progress = f" [{downloaded}/{total}集]"
+                else:
+                    progress = ""
+
+                state_str = f" - {s['state']}" if s['state'] else ""
+                result_lines.append(f"  {i}. {s['name']}{year_str}{season_str}{progress}{state_str}")
+
+        result_lines.append("\n━━━━━━━━━━━━━━━━━━━━")
+        result_lines.append(f"共 {len(movies)} 部电影，{len(series)} 部剧集")
+
+        yield event.plain_result("\n".join(result_lines))
+
     @filter.command("mp下载")
     async def progress(self, event: AstrMessageEvent):
         '''查看下载'''
@@ -658,7 +740,8 @@ class MyPlugin(Star):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【MoviePilot 功能】
   /mp订阅 [片名]      - 搜索并订阅影片
-  /mp下载        - 查看下载进度
+  /mp当前订阅         - 查看当前订阅列表
+  /mp下载             - 查看下载进度
 
 【Emby 功能】
   /emby [类型]     - 查看最新入库

@@ -146,6 +146,42 @@ class MoviepilotApi:
             else:
                 return r.json()
 
+    async def get_subscribes(self) -> List[dict] | None:
+        """获取当前订阅列表
+        Returns:
+            List[dict] | None: 返回订阅列表，每个订阅包含以下字段：
+            - id: int 订阅ID
+            - name: str 名称
+            - type: str 类型（电影/电视剧）
+            - year: str 年份
+            - season: int 季数（电视剧）
+            - total_episode: int 总集数
+            - lack_episode: int 缺失集数
+            - state: str 状态
+        """
+        _api_path = "/api/v1/subscribe/"
+        try:
+            headers = await self._get_headers()
+            if not headers:
+                logger.error("获取认证头失败")
+                return None
+
+            data = await self._request(
+                url=self.base_url + _api_path,
+                method="GET",
+                headers=headers
+            )
+
+            if not data:
+                logger.info("当前没有订阅")
+                return []
+
+            return data
+
+        except Exception as e:
+            logger.error(f"获取订阅列表失败: {e}")
+            return None
+
     async def get_download_progress(self) -> List[dict] | None:
         """获取下载进度
         Returns:
