@@ -767,14 +767,24 @@ class MyPlugin(Star):
 
             # 带引用回复
             message_result = event.make_result()
+            msg_id = None
             try:
-                if hasattr(event, 'message_obj') and hasattr(event.message_obj, 'message_id'):
-                    message_result.chain = [Comp.Reply(event.message_obj.message_id)]
-                elif hasattr(event, 'message_id'):
-                    message_result.chain = [Comp.Reply(event.message_id)]
+                # 尝试多种方式获取消息ID
+                if hasattr(event, 'message_obj') and event.message_obj:
+                    msg_id = getattr(event.message_obj, 'message_id', None)
+                if not msg_id and hasattr(event, 'get_message_id') and callable(event.get_message_id):
+                    msg_id = event.get_message_id()
+                if not msg_id:
+                    msg_id = getattr(event, 'message_id', None)
+
+                logger.info(f"[引用回复] 获取到的 message_id: {msg_id}")
+
+                if msg_id:
+                    message_result.chain = [Comp.Reply(msg_id)]
                 else:
                     message_result.chain = []
-            except Exception:
+            except Exception as e:
+                logger.warning(f"[引用回复] 获取消息ID失败: {e}")
                 message_result.chain = []
             message_result.chain.append(Comp.Plain(media_list))
             yield message_result
