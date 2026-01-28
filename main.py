@@ -8,6 +8,7 @@ import io
 import base64
 import tempfile
 import os
+import json
 from datetime import datetime
 import astrbot.api.message_components as Comp
 from astrbot.core.utils.session_waiter import (
@@ -41,12 +42,49 @@ class MyPlugin(Star):
         self.emby_api = EmbyApi(config)  # Emby API
         self.state = {}  # 初始化状态管理字典
 
+        # 数据持久化目录
+        self.data_dir = os.path.join(os.getcwd(), "data", "astrbot_plugin_mpemby")
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir, exist_ok=True)
+        self.whitelist_file = os.path.join(self.data_dir, "whitelist.json")
+
+        # 加载白名单数据
+        self._load_whitelist()
+
         # 定时任务调度器
         self.scheduler = None
         if HAS_APSCHEDULER and self.config.get("enable_daily_report", False):
             self.setup_scheduler()
 
         logger.info(f"插件初始化完成，Emby配置状态: {'已配置' if self.emby_api.is_configured() else '未配置'}")
+
+    def _load_whitelist(self):
+        """从文件加载白名单数据"""
+        try:
+            if os.path.exists(self.whitelist_file):
+                with open(self.whitelist_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # 将文件中的数据同步到 config
+                    if "enable_whitelist" in data:
+                        self.config["enable_whitelist"] = data["enable_whitelist"]
+                    if "subscribe_whitelist" in data:
+                        self.config["subscribe_whitelist"] = data["subscribe_whitelist"]
+                    logger.info(f"已加载白名单数据: 启用={data.get('enable_whitelist', False)}, 用户数={len(data.get('subscribe_whitelist', '').split(',')) if data.get('subscribe_whitelist') else 0}")
+        except Exception as e:
+            logger.warning(f"加载白名单数据失败: {e}")
+
+    def _save_whitelist(self):
+        """保存白名单数据到文件"""
+        try:
+            data = {
+                "enable_whitelist": self.config.get("enable_whitelist", False),
+                "subscribe_whitelist": self.config.get("subscribe_whitelist", "")
+            }
+            with open(self.whitelist_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            logger.info("白名单数据已保存")
+        except Exception as e:
+            logger.error(f"保存白名单数据失败: {e}")
 
     def render_subscribe_card(self, media_info: dict, success_count: int = 0, failed_count: int = 0, is_movie: bool = False) -> bytes:
         """渲染订阅成功卡片 - 现代风格（无 emoji）"""
@@ -727,7 +765,19 @@ class MyPlugin(Star):
             # 保存发起订阅的用户ID
             original_sender_id = event.get_sender_id()
 
-            yield event.plain_result(media_list)
+            # 带引用回复
+            message_result = event.make_result()
+            try:
+                if hasattr(event, 'message_obj') and hasattr(event.message_obj, 'message_id'):
+                    message_result.chain = [Comp.Reply(event.message_obj.message_id)]
+                elif hasattr(event, 'message_id'):
+                    message_result.chain = [Comp.Reply(event.message_id)]
+                else:
+                    message_result.chain = []
+            except Exception:
+                message_result.chain = []
+            message_result.chain.append(Comp.Plain(media_list))
+            yield message_result
 
             # 使用会话控制器等待用户回复
             @session_waiter(timeout=60, record_history_chains=False)
@@ -1251,10 +1301,12 @@ class MyPlugin(Star):
         try:
             if action == "on":
                 self.config["enable_whitelist"] = True
+                self._save_whitelist()
                 yield event.plain_result("已开启订阅白名单")
 
             elif action == "off":
                 self.config["enable_whitelist"] = False
+                self._save_whitelist()
                 yield event.plain_result("已关闭订阅白名单")
 
             elif action == "list":
@@ -1273,6 +1325,7 @@ class MyPlugin(Star):
                 else:
                     whitelist.append(user_id)
                     self.config["subscribe_whitelist"] = ",".join(whitelist)
+                    self._save_whitelist()
                     yield event.plain_result(f"已添加用户 {user_id} 到白名单")
 
             elif action == "del":
@@ -1282,6 +1335,7 @@ class MyPlugin(Star):
                 if user_id in whitelist:
                     whitelist.remove(user_id)
                     self.config["subscribe_whitelist"] = ",".join(whitelist)
+                    self._save_whitelist()
                     yield event.plain_result(f"已从白名单移除用户 {user_id}")
                 else:
                     yield event.plain_result(f"用户 {user_id} 不在白名单中")
