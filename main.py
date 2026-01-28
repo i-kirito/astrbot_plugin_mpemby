@@ -32,7 +32,7 @@ except ImportError:
     HAS_APSCHEDULER = False
     logger.warning("apscheduler not found, daily report function disabled.")
 
-@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.2.8", "https://github.com/i-kirito/astrbot_plugin_mpemby")
+@register("MoviepilotSubscribe", "ikirito", "MoviePilot订阅 & Emby入库查询插件", "1.2.9", "https://github.com/i-kirito/astrbot_plugin_mpemby")
 class MyPlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -604,12 +604,23 @@ class MyPlugin(Star):
             movie_list = "\n".join([f"{i + 1}. {movie['title']} ({movie['year']})" for i, movie in enumerate(movies)])
             print(movie_list)
             media_list = "\n查询到的影片如下\n请直接回复序号进行订阅（回复0退出选择）：\n" + movie_list
+
+            # 保存发起订阅的用户ID
+            original_sender_id = event.get_sender_id()
+
             yield event.plain_result(media_list)
 
             # 使用会话控制器等待用户回复
             @session_waiter(timeout=60, record_history_chains=False)
             async def movie_selection_waiter(controller: SessionController, event: AstrMessageEvent):
                 try:
+                    # 检查是否为同一用户，忽略其他用户的消息
+                    current_sender_id = event.get_sender_id()
+                    if current_sender_id != original_sender_id:
+                        # 不是发起订阅的用户，继续等待
+                        controller.keep(timeout=60, reset_timeout=False)
+                        return
+
                     user_input = event.message_str.strip()
 
                     # 处理电影选择
