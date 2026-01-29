@@ -347,39 +347,46 @@ class MyPlugin(Star):
             logger.error(f"启动定时任务失败: {e}")
 
     def render_daily_report_card(self, stats: dict, items: list, date_str: str, free_space: str = "") -> bytes:
-        """渲染每日入库日报卡片 - 参照 MoviePilot 风格"""
+        """渲染每日入库日报卡片 - 纯白背景，微软雅黑字体"""
         if not HAS_PILLOW:
             return None
 
         # 配置参数
         padding = 25
-        line_height = 28
-        font_size = 18
-        title_font_size = 22
-        small_font_size = 15
+        line_height = 32
+        font_size = 20
+        title_font_size = 24
+        small_font_size = 18
 
-        # 配色方案 - 深色主题
-        bg_color = (18, 18, 18)              # 深黑背景
-        title_color = (255, 255, 255)        # 白色标题
-        text_color = (220, 220, 220)         # 浅灰文字
-        muted_color = (140, 140, 140)        # 灰色次要文字
-        accent_color = (100, 180, 255)       # 蓝色强调
-        green_color = (100, 200, 100)        # 绿色
-        blue_color = (100, 150, 255)         # 蓝色
-        purple_color = (180, 130, 255)       # 紫色
-        yellow_color = (255, 200, 80)        # 黄色
+        # 纯白背景，黑色文字
+        bg_color = (255, 255, 255)
+        text_color = (50, 50, 50)
+        muted_color = (120, 120, 120)
 
-        # 加载字体
+        # 加载字体（优先微软雅黑）
         font = None
         title_font = None
         small_font = None
+        bold_font = None
         font_paths = [
-            "/System/Library/Fonts/PingFang.ttc",
-            "/System/Library/Fonts/STHeiti Light.ttc",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "C:\\Windows\\Fonts\\msyhbd.ttc",
             "C:\\Windows\\Fonts\\msyh.ttc",
+            "/usr/share/fonts/truetype/msyh/msyhbd.ttc",
+            "/usr/share/fonts/truetype/msyh/msyh.ttc",
+            "/usr/share/fonts/msyh.ttc",
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/STHeiti Medium.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
             "C:\\Windows\\Fonts\\simhei.ttf",
+        ]
+        bold_font_paths = [
+            "C:\\Windows\\Fonts\\simhei.ttf",
+            "C:\\Windows\\Fonts\\msyhbd.ttc",
+            "/usr/share/fonts/truetype/simhei/simhei.ttf",
+            "/System/Library/Fonts/STHeiti Medium.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
         ]
 
         for path in font_paths:
@@ -392,10 +399,20 @@ class MyPlugin(Star):
             except Exception:
                 continue
 
+        for path in bold_font_paths:
+            try:
+                if os.path.exists(path):
+                    bold_font = ImageFont.truetype(path, font_size)
+                    break
+            except Exception:
+                continue
+
         if not font:
             font = ImageFont.load_default()
             title_font = font
             small_font = font
+        if not bold_font:
+            bold_font = font
 
         # 分类整理入库项目
         movies = []
@@ -406,20 +423,22 @@ class MyPlugin(Star):
             elif item_str.startswith("[剧集]"):
                 series.append(item_str.replace("[剧集] ", ""))
 
+        # 时间戳
+        timestamp = datetime.now().strftime("%H:%M")
+
         # 计算图片高度
-        img_width = 420
-        current_y = padding
+        img_width = 500
 
         # 标题区域
-        header_height = 35
+        header_height = line_height + 10
         # 统计区域
-        stats_height = 100
+        stats_height = line_height * 3 + 20
         # 电影区域
-        movies_height = (len(movies[:8]) * line_height + 40) if movies else 0
+        movies_height = (len(movies[:8]) * line_height + line_height + 20) if movies else 0
         # 剧集区域
-        series_height = (len(series[:8]) * line_height + 40) if series else 0
-        # 底部区域
-        footer_height = 50
+        series_height = (len(series[:8]) * line_height + line_height + 20) if series else 0
+        # 底部区域（时间戳）
+        footer_height = line_height + padding
 
         img_height = padding + header_height + stats_height + movies_height + series_height + footer_height + padding
 
@@ -427,53 +446,51 @@ class MyPlugin(Star):
         img = Image.new('RGB', (img_width, img_height), bg_color)
         draw = ImageDraw.Draw(img)
 
+        current_y = padding
+
         # 1. 标题行
-        draw.text((padding, current_y), f"📺 Emby 每日入库报告 | {date_str}", font=title_font, fill=title_color)
-        current_y += header_height + 15
+        draw.text((padding, current_y), f"Emby 每日入库报告 | {date_str}", font=title_font, fill=text_color)
+        current_y += header_height + 10
 
         # 2. 统计区域
-        draw.text((padding, current_y), "📊 统计:", font=font, fill=text_color)
-        current_y += line_height
-
         movie_count = stats.get("Movie", 0)
         series_count = stats.get("Series", 0)
-        episode_count = stats.get("Episode", 0)
 
-        draw.text((padding, current_y), f"🟢 新增电影: {movie_count}", font=font, fill=green_color)
+        draw.text((padding, current_y), f"新增电影: {movie_count} 部", font=font, fill=text_color)
         current_y += line_height
-        draw.text((padding, current_y), f"🔵 新增剧集: {series_count}", font=font, fill=blue_color)
+        draw.text((padding, current_y), f"新增剧集: {series_count} 部", font=font, fill=text_color)
         current_y += line_height
         if free_space:
-            draw.text((padding, current_y), f"💾 剩余空间: {free_space}", font=font, fill=muted_color)
-        current_y += line_height + 10
+            draw.text((padding, current_y), f"剩余空间: {free_space}", font=font, fill=muted_color)
+        current_y += line_height + padding
 
         # 3. 电影列表
         if movies:
-            draw.text((padding, current_y), "🎬 电影 (Movies):", font=font, fill=yellow_color)
+            draw.text((padding, current_y), "电影:", font=bold_font, fill=text_color)
             current_y += line_height
             for movie in movies[:8]:
-                # 截断过长的名称
-                display_name = movie[:35] + "..." if len(movie) > 35 else movie
-                draw.text((padding, current_y), f"• {display_name}", font=small_font, fill=text_color)
+                display_name = movie[:22] + "..." if len(movie) > 22 else movie
+                draw.text((padding + 10, current_y), f"· {display_name}", font=small_font, fill=muted_color)
                 current_y += line_height
             current_y += 10
 
         # 4. 剧集列表
         if series:
-            draw.text((padding, current_y), "📺 剧集 (TV Shows):", font=font, fill=purple_color)
+            draw.text((padding, current_y), "剧集:", font=bold_font, fill=text_color)
             current_y += line_height
             for show in series[:8]:
-                # 截断过长的名称
-                display_name = show[:35] + "..." if len(show) > 35 else show
-                draw.text((padding, current_y), f"• {display_name}", font=small_font, fill=text_color)
+                display_name = show[:22] + "..." if len(show) > 22 else show
+                draw.text((padding + 10, current_y), f"· {display_name}", font=small_font, fill=muted_color)
                 current_y += line_height
-            current_y += 10
 
-        # 5. 底部提示
-        current_y += 5
-        draw.text((padding, current_y), "👋 周末愉快，准备好爆米花了吗？", font=small_font, fill=muted_color)
-        current_y += line_height
-        draw.text((padding, current_y), "#Emby #DailyReport", font=small_font, fill=accent_color)
+        # 5. 右下角时间戳
+        try:
+            ts_bbox = draw.textbbox((0, 0), timestamp, font=font)
+            ts_width = ts_bbox[2] - ts_bbox[0]
+        except:
+            ts_width = len(timestamp) * font_size // 2
+        draw.text((img_width - padding - ts_width, img_height - padding - line_height + 5),
+                  timestamp, font=font, fill=muted_color)
 
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
