@@ -1,78 +1,89 @@
 {
     "mp_url": {
-        "description": "MoviePilotUrl",
+        "description": "MoviePilot 服务器地址",
         "type": "string",
-        "hint": "MoviePilot地址，如 http://192.168.31.213:3000",
+        "hint": "MoviePilot 的访问地址，格式: http://IP:端口，例如 http://192.168.1.100:3000",
         "default": "http://localhost:3000"
     },
     "mp_token": {
-        "description": "MoviePilotToken",
-        "type": "string"
+        "description": "MoviePilot API Token",
+        "type": "string",
+        "hint": "在 MoviePilot 后台「设置 → 安全」中生成 API Token。如果填写了用户名密码，此项可留空",
+        "default": "",
+        "secret": true
     },
     "mp_username": {
-        "description": "MoviePilot用户名",
+        "description": "MoviePilot 登录用户名",
         "type": "string",
+        "hint": "MoviePilot 的登录账号，与 Token 二选一填写即可",
         "default": "admin"
     },
     "mp_password": {
-        "description": "MoviePilot密码",
+        "description": "MoviePilot 登录密码",
         "type": "string",
+        "hint": "MoviePilot 的登录密码，与用户名配合使用",
+        "default": "",
         "secret": true
     },
     "enable_subscribe_card": {
-        "description": "订阅成功后发送卡片通知",
+        "description": "订阅成功发送图片卡片",
         "type": "bool",
         "default": true,
-        "hint": "订阅成功后是否发送图片卡片形式的通知"
+        "hint": "开启后订阅成功时发送精美的图片卡片通知，关闭则发送纯文本"
     },
     "enable_whitelist": {
-        "description": "开启订阅白名单",
+        "description": "启用订阅白名单",
         "type": "bool",
         "default": false,
-        "hint": "开启后仅白名单用户可使用订阅功能"
+        "hint": "开启后仅白名单内的用户可以使用 /mp订阅 命令，其他用户将被拒绝"
     },
     "subscribe_whitelist": {
-        "description": "订阅白名单",
+        "description": "订阅白名单用户",
         "type": "string",
         "default": "",
-        "hint": "允许使用订阅功能的用户ID，多个用逗号分隔"
+        "hint": "允许使用订阅功能的用户ID列表，多个用英文逗号分隔，例如: 123456,789012,345678"
     },
     "emby_url": {
-        "description": "Emby服务器地址",
+        "description": "Emby 服务器地址",
         "type": "string",
-        "hint": "Emby服务器地址，如 http://192.168.31.213:8096",
+        "hint": "Emby 的访问地址，格式: http://IP:端口，例如 http://192.168.1.100:8096",
         "default": "http://localhost:8096"
     },
     "emby_api_key": {
-        "description": "Emby API Key",
+        "description": "Emby API 密钥",
         "type": "string",
-        "hint": "在Emby后台 -> 设置 -> API密钥 中生成"
+        "hint": "在 Emby 后台「设置 → 高级 → API 密钥」中生成，用于访问 Emby 数据",
+        "default": "",
+        "secret": true
     },
     "emby_user_id": {
-        "description": "Emby用户ID",
+        "description": "Emby 用户 ID",
         "type": "string",
-        "hint": "用于获取最新入库，可在Emby后台用户URL中获取"
+        "hint": "在 Emby 后台「用户」页面点击用户，URL 中的 userId=xxx 即为此 ID",
+        "default": ""
     },
     "emby_max_results": {
-        "description": "Emby查询结果数量",
+        "description": "查询结果数量上限",
         "type": "int",
         "default": 10,
-        "hint": "入库查询返回的最大条目数"
+        "hint": "最新入库、搜索等功能返回的最大条目数，建议设置 5-20 之间"
     },
     "enable_daily_report": {
-        "description": "开启每日入库推送",
+        "description": "启用每日入库推送",
         "type": "bool",
-        "default": false
+        "default": false,
+        "hint": "开启后每天定时自动推送 Emby 新入库内容汇总"
     },
     "report_time": {
-        "description": "推送时间",
+        "description": "每日推送时间",
         "type": "string",
         "default": "20:00",
-        "hint": "格式: HH:MM"
+        "hint": "24小时制，格式 HH:MM，例如 20:00 表示晚上8点推送"
     },
     "report_target_id": {
-        "description": "推送目标ID",
+        "description": "推送目标 ID",
         "type": "string",
-        "hint": "接收通知的用户ID或群组ID"
+        "hint": "接收推送的群号或用户QQ号。支持指定平台格式: 平台名:ID，例如 qq:123456789",
+        "default": ""
     }
 }

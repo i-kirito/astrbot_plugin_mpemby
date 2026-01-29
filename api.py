@@ -11,7 +11,7 @@ class MoviepilotApi:
         self.base_url = config.get('mp_url')
         self.mp_username = config.get('mp_username')
         self.mp_password = config.get('mp_password')
-        print(self.mp_username)        
+        # 已移除 print 语句以防止信息泄露        
 
     async def _get_mp_token(self) -> str | None:
         _api_path = "/api/v1/login/access-token"
@@ -50,12 +50,16 @@ class MoviepilotApi:
             return
 
     async def search_media_info(self, media_name: str) -> dict | None:
-        _api_path = f"/api/v1/media/search?title={media_name}"
+        from urllib.parse import quote_plus
+        _api_path = f"/api/v1/media/search?title={quote_plus(media_name)}"
         try:
+            headers = await self._get_headers()
+            if not headers:
+                return None
             return await self._request(
                 url=self.base_url + _api_path,
                 method="GET",
-                headers=await self._get_headers()
+                headers=headers
             )
         except Exception as e:
             logger.error(f"Error searching movies: {e}\n{traceback.format_exc()}")
@@ -64,10 +68,13 @@ class MoviepilotApi:
     async def list_all_seasons(self, tmdbid: str) -> dict | None:
         _api_path = f"/api/v1/tmdb/seasons/{tmdbid}"
         try:
+            headers = await self._get_headers()
+            if not headers:
+                return None
             return await self._request(
                 url=self.base_url + _api_path,
                 method="GET",
-                headers=await self._get_headers()
+                headers=headers
             )
         except Exception as e:
             logger.error(f"Error listing seasons: {e}")
@@ -81,10 +88,13 @@ class MoviepilotApi:
             "type": "电影"
         }
         try:
+            headers = await self._get_headers()
+            if not headers:
+                return False
             response = await self._request(
                 url=self.base_url + _api_path,
                 method="POST-JSON",
-                headers=await self._get_headers(),
+                headers=headers,
                 data=body
             )
             logger.info(response)
@@ -101,10 +111,13 @@ class MoviepilotApi:
             "season": season
         }
         try:
+            headers = await self._get_headers()
+            if not headers:
+                return False
             response = await self._request(
                 url=self.base_url + _api_path,
                 method="POST-JSON",
-                headers=await self._get_headers(),
+                headers=headers,
                 data=body
             )
             return response.get("success", False) if response else False
@@ -150,12 +163,14 @@ class MoviepilotApi:
             headers = {'user-agent': 'nonebot2/0.0.1'}
         timeout = httpx.Timeout(120.0, read=120.0)
 
-        logger.info(f"""
-                url: {url}
-                method = {method}
-                headers = {headers}
-                data = {data}
-                """)
+        # 脱敏日志：隐藏敏感信息
+        safe_headers = {k: ("***" if k.lower() in {"authorization", "x-emby-token"} else v) for k, v in (headers or {}).items()}
+        safe_data = None
+        if isinstance(data, dict):
+            safe_data = {k: ("***" if k.lower() in {"password", "access_token"} else v) for k, v in data.items()}
+        else:
+            safe_data = data
+        logger.info(f"请求: url={url}, method={method}, headers={safe_headers}, data={safe_data}")
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             if method == "GET":

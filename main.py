@@ -194,6 +194,7 @@ class MyPlugin(Star):
 
         # 尝试发送卡片
         if enable_card and HAS_PILLOW:
+            tmp_path = None
             try:
                 img_bytes = self.render_subscribe_card(media_info, success_count, failed_count, is_movie)
                 if img_bytes:
@@ -203,14 +204,16 @@ class MyPlugin(Star):
 
                     message_result.chain.append(Comp.Image.fromFileSystem(tmp_path))
                     await event.send(message_result)
-
+                    return
+            except Exception as e:
+                logger.warning(f"卡片渲染失败，使用文本: {e}")
+            finally:
+                # 确保临时文件被清理
+                if tmp_path:
                     try:
                         os.unlink(tmp_path)
                     except Exception:
                         pass
-                    return
-            except Exception as e:
-                logger.warning(f"卡片渲染失败，使用文本: {e}")
 
         # 回退到纯文本
         message_result.chain.append(Comp.Plain(msg))
@@ -710,22 +713,31 @@ class MyPlugin(Star):
             message_result = event.make_result()
             msg_id = None
             try:
-                # 尝试多种方式获取消息ID
+                # 方法1: message_obj.message_id
                 if hasattr(event, 'message_obj') and event.message_obj:
-                    msg_id = getattr(event.message_obj, 'message_id', None)
-                if not msg_id and hasattr(event, 'get_message_id') and callable(event.get_message_id):
-                    msg_id = event.get_message_id()
+                    msg_id = getattr(event.message_obj, 'message_id', None) or None
+
+                # 方法2: get_message_id()
+                if not msg_id and hasattr(event, 'get_message_id'):
+                    try:
+                        msg_id = event.get_message_id() or None
+                    except Exception:
+                        pass
+
+                # 方法3: event.message_id
                 if not msg_id:
-                    msg_id = getattr(event, 'message_id', None)
+                    msg_id = getattr(event, 'message_id', None) or None
 
-                logger.info(f"[引用回复] 获取到的 message_id: {msg_id}")
-
-                if msg_id:
-                    message_result.chain = [Comp.Reply(id=str(msg_id))]
-                else:
-                    message_result.chain = []
             except Exception as e:
                 logger.warning(f"[引用回复] 获取消息ID失败: {e}")
+                msg_id = None
+
+            # 移到 try 外部，确保总是记录
+            logger.info(f"[引用回复] 获取到的 message_id: {msg_id}")
+
+            if msg_id:
+                message_result.chain = [Comp.Reply(id=str(msg_id))]
+            else:
                 message_result.chain = []
             message_result.chain.append(Comp.Plain(media_list))
             yield message_result
