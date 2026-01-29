@@ -102,10 +102,15 @@ class MyPlugin(Star):
         text_color = (50, 50, 50)
         muted_color = (120, 120, 120)
 
-        # 加载字体（优先粗体）
+        # 加载字体（优先微软雅黑）
         font = None
         title_font = None
         font_paths = [
+            "C:\\Windows\\Fonts\\msyhbd.ttc",  # 微软雅黑粗体
+            "C:\\Windows\\Fonts\\msyh.ttc",    # 微软雅黑
+            "/usr/share/fonts/truetype/msyh/msyhbd.ttc",
+            "/usr/share/fonts/truetype/msyh/msyh.ttc",
+            "/usr/share/fonts/msyh.ttc",
             "/System/Library/Fonts/PingFang.ttc",
             "/System/Library/Fonts/STHeiti Medium.ttc",
             "/System/Library/Fonts/STHeiti Light.ttc",
@@ -113,8 +118,6 @@ class MyPlugin(Star):
             "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "C:\\Windows\\Fonts\\msyhbd.ttc",
-            "C:\\Windows\\Fonts\\msyh.ttc",
             "C:\\Windows\\Fonts\\simhei.ttf",
         ]
 
