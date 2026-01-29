@@ -174,89 +174,45 @@ class MyPlugin(Star):
 
     async def send_subscribe_result(self, event: AstrMessageEvent, media_info: dict,
                                      success_count: int = 0, failed_count: int = 0, is_movie: bool = False):
-        """发送订阅结果（MoviePilot 风格：标题 + 海报 + 详情）"""
-        # 构建 MoviePilot 风格的文本消息
+        """发送订阅结果（渲染为图片，保证格式统一）"""
+        if not HAS_PILLOW:
+            # 回退到纯文本
+            title = media_info.get('title', '未知')
+            year = media_info.get('year', '')
+            media_type = media_info.get('type', '电影')
+            msg = f"✅ 订阅成功\n\n{title} ({year})\n类型：{media_type}"
+            await event.send(event.plain_result(msg))
+            return
+
+        try:
+            img_bytes = self.render_subscribe_card(media_info, success_count, failed_count, is_movie)
+            if img_bytes:
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+                    f.write(img_bytes)
+                    tmp_path = f.name
+
+                message_result = event.make_result()
+                message_result.chain = [Comp.Image.fromFileSystem(tmp_path)]
+                await event.send(message_result)
+
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+                return
+        except Exception as e:
+            logger.warning(f"订阅卡片渲染失败，使用文本模式: {e}")
+
+        # 回退到纯文本
         title = media_info.get('title', '未知')
         year = media_info.get('year', '')
         media_type = media_info.get('type', '电影')
-        # 尝试获取更多信息
-        vote_average = media_info.get('vote_average', 0)
-        overview = media_info.get('overview', '')
-
-        # 获取海报路径
-        poster_path = media_info.get('poster_path', '')
-
-        # 获取片商/发行方信息
-        studio = ""
-        # 电视剧优先使用 networks（网飞、迪士尼+等）
-        networks = media_info.get('networks', [])
-        if networks and isinstance(networks, list) and len(networks) > 0:
-            if isinstance(networks[0], dict):
-                studio = networks[0].get('name', '')
-            elif isinstance(networks[0], str):
-                studio = networks[0]
-        # 电影使用 production_companies
-        if not studio:
-            companies = media_info.get('production_companies', [])
-            if companies and isinstance(companies, list) and len(companies) > 0:
-                if isinstance(companies[0], dict):
-                    studio = companies[0].get('name', '')
-                elif isinstance(companies[0], str):
-                    studio = companies[0]
-
-        # 标题行
-        title_msg = f"🎬 订阅完成: {title}"
-        if media_info.get('original_title') and media_info.get('original_title') != title:
-            title_msg += f" ({media_info.get('original_title')})"
-
-        # 详情信息
-        detail_msg = ""
-
-        # 评分（如果有）
-        if vote_average and vote_average > 0:
-            detail_msg += f"评分：  ⭐ {vote_average}\n"
-
-        # 年份
-        if year:
-            detail_msg += f"年份：  {year}\n"
-
-        # 类型
-        detail_msg += f"类型：  {media_type}\n"
-
-        # 剧集季数信息
+        msg = f"✅ 订阅成功\n\n{title} ({year})\n类型：{media_type}"
         if not is_movie and success_count > 0:
-            detail_msg += f"季数：  已订阅 {success_count} 季"
+            msg += f"\n已订阅 {success_count} 季"
             if failed_count > 0:
-                detail_msg += f"（{failed_count} 季已存在）"
-            detail_msg += "\n"
-
-        # 片商/发行方
-        if studio:
-            detail_msg += f"片商：  {studio}\n"
-
-        # 简介（如果有，截取前80字符）
-        if overview:
-            overview_text = overview[:80] + "..." if len(overview) > 80 else overview
-            detail_msg += f"\n{overview_text}"
-
-        message_result = event.make_result()
-        message_result.chain = []
-
-        # 1. 添加标题
-        message_result.chain.append(Comp.Plain(title_msg + "\n"))
-
-        # 2. 添加海报图片（如果有）
-        if poster_path:
-            # TMDB 海报 URL 格式
-            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-            try:
-                message_result.chain.append(Comp.Image.fromURL(poster_url))
-            except Exception as e:
-                logger.warning(f"添加海报失败: {e}")
-
-        # 3. 添加详情文本
-        message_result.chain.append(Comp.Plain("\n" + detail_msg))
-        await event.send(message_result)
+                msg += f"（{failed_count} 季已存在）"
+        await event.send(event.plain_result(msg))
 
     def setup_scheduler(self):
         """配置定时任务"""
