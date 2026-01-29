@@ -87,21 +87,27 @@ class MyPlugin(Star):
             logger.error(f"保存白名单数据失败: {e}")
 
     def render_subscribe_card(self, media_info: dict, success_count: int = 0, failed_count: int = 0, is_movie: bool = False) -> bytes:
-        """渲染订阅成功卡片 - 极简风格"""
+        """渲染订阅成功卡片 - MoviePilot 风格（标题+海报+详情）"""
         if not HAS_PILLOW:
             return None
 
-        # 配置参数
-        font_size = 20
-        title_font_size = 26
-        small_font_size = 16
+        import aiohttp
+        import asyncio
 
-        # 极简配色方案
-        bg_color = (20, 20, 20)             # 深黑背景
-        accent_color = (80, 200, 120)       # 绿色强调
-        title_color = (255, 255, 255)       # 白色标题
-        muted_color = (120, 120, 120)       # 灰色次要文字
-        line_color = (50, 50, 50)           # 分割线颜色
+        # 配置参数
+        padding = 25
+        font_size = 18
+        title_font_size = 22
+        small_font_size = 15
+        line_height = 28
+
+        # 配色方案 - 深色主题
+        bg_color = (25, 25, 30)              # 深色背景
+        title_color = (255, 255, 255)        # 白色标题
+        text_color = (220, 220, 220)         # 浅灰文字
+        muted_color = (140, 140, 140)        # 灰色次要文字
+        accent_color = (100, 200, 120)       # 绿色强调
+        star_color = (255, 200, 80)          # 星星颜色
 
         # 加载字体
         font = None
@@ -135,38 +141,102 @@ class MyPlugin(Star):
         title = media_info.get('title', '未知')
         year = media_info.get('year', '')
         media_type = media_info.get('type', '电影')
+        vote_average = media_info.get('vote_average', 0)
+        overview = media_info.get('overview', '')
+        poster_path = media_info.get('poster_path', '')
 
-        # 计算尺寸
-        img_width = 400
-        img_height = 130 if is_movie else 155
+        # 尝试下载海报
+        poster_img = None
+        poster_width = 150
+        poster_height = 225
+        if poster_path:
+            try:
+                poster_url = f"https://image.tmdb.org/t/p/w300{poster_path}"
+                import urllib.request
+                with urllib.request.urlopen(poster_url, timeout=10) as response:
+                    poster_data = response.read()
+                    poster_img = Image.open(io.BytesIO(poster_data))
+                    poster_img = poster_img.resize((poster_width, poster_height), Image.Resampling.LANCZOS)
+            except Exception as e:
+                logger.warning(f"下载海报失败: {e}")
+                poster_img = None
+
+        # 计算图片尺寸
+        img_width = 420
+        content_x = padding + poster_width + 20 if poster_img else padding
+
+        # 计算内容高度
+        detail_lines = []
+        if vote_average and vote_average > 0:
+            detail_lines.append(f"评分：⭐ {vote_average}")
+        if year:
+            detail_lines.append(f"年份：{year}")
+        detail_lines.append(f"类型：{media_type}")
+        if not is_movie and success_count > 0:
+            season_info = f"季数：已订阅 {success_count} 季"
+            if failed_count > 0:
+                season_info += f"（{failed_count} 季已存在）"
+            detail_lines.append(season_info)
+
+        # 简介处理（自动换行）
+        overview_lines = []
+        if overview:
+            # 每行约 15 个字符（根据海报是否存在调整）
+            chars_per_line = 12 if poster_img else 28
+            overview_text = overview[:120]  # 最多 120 字符
+            for i in range(0, len(overview_text), chars_per_line):
+                overview_lines.append(overview_text[i:i+chars_per_line])
+            if len(overview) > 120:
+                overview_lines[-1] += "..."
+
+        # 计算高度
+        title_height = 45
+        details_height = len(detail_lines) * line_height
+        overview_height = len(overview_lines) * (line_height - 4) + 15 if overview_lines else 0
+        content_height = title_height + details_height + overview_height
+
+        img_height = max(poster_height + padding * 2 if poster_img else 200, content_height + padding * 2)
 
         # 创建图片
         img = Image.new('RGB', (img_width, img_height), bg_color)
         draw = ImageDraw.Draw(img)
 
-        # 左侧绿色装饰条
-        draw.rectangle([0, 0, 4, img_height], fill=accent_color)
+        # 左侧装饰条
+        draw.rectangle([0, 0, 5, img_height], fill=accent_color)
 
-        # 成功文字
-        draw.text((20, 15), "✓ 订阅成功", font=font, fill=accent_color)
+        current_y = padding
 
-        # 标题
-        draw.text((20, 48), title, font=title_font, fill=title_color)
+        # 标题行
+        title_text = f"🎬 订阅完成: {title}"
+        # 截断过长标题
+        if len(title_text) > 22:
+            title_text = title_text[:20] + "..."
+        draw.text((padding + 10, current_y), title_text, font=title_font, fill=accent_color)
+        current_y += title_height
 
-        # 分割线
-        line_y = 90
-        draw.line([(20, line_y), (img_width - 20, line_y)], fill=line_color, width=1)
+        # 海报区域
+        if poster_img:
+            img.paste(poster_img, (padding + 10, current_y))
+            info_x = padding + poster_width + 25
+        else:
+            info_x = padding + 10
 
-        # 底部信息
-        info_y = line_y + 10
-        info_text = f"{media_type} · {year}年" if year else media_type
+        info_y = current_y
 
-        if not is_movie and success_count > 0:
-            info_text += f" · 已订阅 {success_count} 季"
-            if failed_count > 0:
-                info_text += f"（{failed_count} 季已存在）"
+        # 详情信息
+        for line in detail_lines:
+            if "评分" in line:
+                draw.text((info_x, info_y), line, font=font, fill=star_color)
+            else:
+                draw.text((info_x, info_y), line, font=font, fill=text_color)
+            info_y += line_height
 
-        draw.text((20, info_y), info_text, font=small_font, fill=muted_color)
+        # 简介
+        if overview_lines:
+            info_y += 10
+            for line in overview_lines:
+                draw.text((info_x, info_y), line, font=small_font, fill=muted_color)
+                info_y += line_height - 4
 
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
@@ -174,57 +244,36 @@ class MyPlugin(Star):
 
     async def send_subscribe_result(self, event: AstrMessageEvent, media_info: dict,
                                      success_count: int = 0, failed_count: int = 0, is_movie: bool = False):
-        """发送订阅结果（MoviePilot 风格：标题 + 海报 + 详情）"""
+        """发送订阅结果（渲染为图片：标题+海报+详情）"""
+        try:
+            img_bytes = self.render_subscribe_card(media_info, success_count, failed_count, is_movie)
+            if img_bytes:
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+                    f.write(img_bytes)
+                    tmp_path = f.name
+
+                message_result = event.make_result()
+                message_result.chain = [Comp.Image.fromFileSystem(tmp_path)]
+                await event.send(message_result)
+
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+                return
+        except Exception as e:
+            logger.warning(f"订阅卡片渲染失败，使用文本模式: {e}")
+
+        # 回退到纯文本
         title = media_info.get('title', '未知')
         year = media_info.get('year', '')
         media_type = media_info.get('type', '电影')
-        vote_average = media_info.get('vote_average', 0)
-        overview = media_info.get('overview', '')
-        poster_path = media_info.get('poster_path', '')
-
-        # 标题行
-        title_line = f"🎬 订阅完成: {title}"
-
-        # 详情信息
-        detail_lines = []
-        if vote_average and vote_average > 0:
-            detail_lines.append(f"评分：  ⭐ {vote_average}")
-        if year:
-            detail_lines.append(f"年份：  {year}")
-        detail_lines.append(f"类型：  {media_type}")
-
-        # 剧集季数信息
+        msg = f"✅ 订阅成功\n\n🎬 {title} ({year})\n类型：{media_type}"
         if not is_movie and success_count > 0:
-            season_info = f"季数：  已订阅 {success_count} 季"
+            msg += f"\n已订阅 {success_count} 季"
             if failed_count > 0:
-                season_info += f"（{failed_count} 季已存在）"
-            detail_lines.append(season_info)
-
-        # 简介（截取前100字符）
-        if overview:
-            overview_text = overview[:100] + "..." if len(overview) > 100 else overview
-            detail_lines.append(f"\n{overview_text}")
-
-        detail_msg = "\n".join(detail_lines)
-
-        message_result = event.make_result()
-        message_result.chain = []
-
-        # 1. 添加标题
-        message_result.chain.append(Comp.Plain(title_line + "\n"))
-
-        # 2. 添加海报图片（如果有）
-        if poster_path:
-            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-            try:
-                message_result.chain.append(Comp.Image.fromURL(poster_url))
-            except Exception as e:
-                logger.warning(f"添加海报失败: {e}")
-
-        # 3. 添加详情文本
-        message_result.chain.append(Comp.Plain("\n" + detail_msg))
-
-        await event.send(message_result)
+                msg += f"（{failed_count} 季已存在）"
+        await event.send(event.plain_result(msg))
 
     def setup_scheduler(self):
         """配置定时任务"""
