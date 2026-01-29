@@ -206,19 +206,22 @@ class MyPlugin(Star):
         # 简介处理（自动换行）
         overview_lines = []
         if overview:
-            chars_per_line = 24
+            chars_per_line = 22  # 减少每行字数，留出左右间距
             overview_text = overview[:200]
             for i in range(0, len(overview_text), chars_per_line):
                 overview_lines.append(overview_text[i:i+chars_per_line])
             if len(overview) > 200 and overview_lines:
                 overview_lines[-1] = overview_lines[-1][:chars_per_line-3] + "..."
 
+        # 时间戳
+        timestamp = datetime.now().strftime("%H:%M")
+
         # 计算文字区域高度
         text_area_height = padding + line_height  # 标题
         text_area_height += line_height  # 信息行
         if overview_lines:
-            text_area_height += padding + line_height * len(overview_lines)
-        text_area_height += padding
+            text_area_height += padding * 2 + line_height * len(overview_lines)  # 简介上下间距
+        text_area_height += padding + line_height  # 底部时间戳
 
         # 总高度
         img_height = poster_height + text_area_height if poster_img else text_area_height + 50
@@ -244,14 +247,26 @@ class MyPlugin(Star):
         draw.text((padding, current_y), info_line, font=font, fill=muted_color)
         current_y += line_height
 
-        # 渲染简介
+        # 渲染简介（四周有间距）
         if overview_lines:
-            current_y += 10
-            draw.text((padding, current_y), "简介：", font=font, fill=text_color)
+            current_y += padding  # 上间距
+            draw.text((padding + 10, current_y), "简介：", font=font, fill=text_color)
             current_y += line_height
             for line in overview_lines:
-                draw.text((padding, current_y), line, font=font, fill=muted_color)
+                draw.text((padding + 10, current_y), line, font=font, fill=muted_color)
                 current_y += line_height - 2
+            current_y += padding  # 下间距
+
+        # 右下角时间戳
+        timestamp_text = timestamp
+        # 计算时间戳位置（右下角）
+        try:
+            ts_bbox = draw.textbbox((0, 0), timestamp_text, font=font)
+            ts_width = ts_bbox[2] - ts_bbox[0]
+        except:
+            ts_width = len(timestamp_text) * font_size // 2
+        draw.text((img_width - padding - ts_width, img_height - padding - line_height + 5),
+                  timestamp_text, font=font, fill=muted_color)
 
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
