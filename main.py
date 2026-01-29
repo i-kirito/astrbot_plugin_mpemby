@@ -174,49 +174,88 @@ class MyPlugin(Star):
 
     async def send_subscribe_result(self, event: AstrMessageEvent, media_info: dict,
                                      success_count: int = 0, failed_count: int = 0, is_movie: bool = False):
-        """发送订阅结果（支持卡片和引用回复）"""
-        enable_card = self.config.get("enable_subscribe_card", True)
-
-        # 构建文本消息
+        """发送订阅结果（MoviePilot 风格：标题 + 海报 + 详情）"""
+        # 构建 MoviePilot 风格的文本消息
         title = media_info.get('title', '未知')
         year = media_info.get('year', '')
         media_type = media_info.get('type', '电影')
+        # 尝试获取更多信息
+        vote_average = media_info.get('vote_average', 0)
+        overview = media_info.get('overview', '')
 
-        if is_movie:
-            msg = f"✅ 订阅成功\n\n🎬 {title}\n年份：{year}\n类型：{media_type}"
-        else:
-            msg = f"✅ 订阅成功\n\n📺 {title}\n年份：{year}\n类型：{media_type}\n季数：成功 {success_count} 季"
+        # 获取海报路径
+        poster_path = media_info.get('poster_path', '')
+
+        # 获取片商/发行方信息
+        studio = ""
+        # 电视剧优先使用 networks（网飞、迪士尼+等）
+        networks = media_info.get('networks', [])
+        if networks and isinstance(networks, list) and len(networks) > 0:
+            if isinstance(networks[0], dict):
+                studio = networks[0].get('name', '')
+            elif isinstance(networks[0], str):
+                studio = networks[0]
+        # 电影使用 production_companies
+        if not studio:
+            companies = media_info.get('production_companies', [])
+            if companies and isinstance(companies, list) and len(companies) > 0:
+                if isinstance(companies[0], dict):
+                    studio = companies[0].get('name', '')
+                elif isinstance(companies[0], str):
+                    studio = companies[0]
+
+        # 标题行
+        title_msg = f"🎬 订阅完成: {title}"
+        if media_info.get('original_title') and media_info.get('original_title') != title:
+            title_msg += f" ({media_info.get('original_title')})"
+
+        # 详情信息
+        detail_msg = ""
+
+        # 评分（如果有）
+        if vote_average and vote_average > 0:
+            detail_msg += f"评分：  ⭐ {vote_average}\n"
+
+        # 年份
+        if year:
+            detail_msg += f"年份：  {year}\n"
+
+        # 类型
+        detail_msg += f"类型：  {media_type}\n"
+
+        # 剧集季数信息
+        if not is_movie and success_count > 0:
+            detail_msg += f"季数：  已订阅 {success_count} 季"
             if failed_count > 0:
-                msg += f"，失败 {failed_count} 季"
+                detail_msg += f"（{failed_count} 季已存在）"
+            detail_msg += "\n"
+
+        # 片商/发行方
+        if studio:
+            detail_msg += f"片商：  {studio}\n"
+
+        # 简介（如果有，截取前80字符）
+        if overview:
+            overview_text = overview[:80] + "..." if len(overview) > 80 else overview
+            detail_msg += f"\n{overview_text}"
 
         message_result = event.make_result()
         message_result.chain = []
 
-        # 尝试发送卡片
-        if enable_card and HAS_PILLOW:
-            tmp_path = None
+        # 1. 添加标题
+        message_result.chain.append(Comp.Plain(title_msg + "\n"))
+
+        # 2. 添加海报图片（如果有）
+        if poster_path:
+            # TMDB 海报 URL 格式
+            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
             try:
-                img_bytes = self.render_subscribe_card(media_info, success_count, failed_count, is_movie)
-                if img_bytes:
-                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
-                        f.write(img_bytes)
-                        tmp_path = f.name
-
-                    message_result.chain.append(Comp.Image.fromFileSystem(tmp_path))
-                    await event.send(message_result)
-                    return
+                message_result.chain.append(Comp.Image.fromURL(poster_url))
             except Exception as e:
-                logger.warning(f"卡片渲染失败，使用文本: {e}")
-            finally:
-                # 确保临时文件被清理
-                if tmp_path:
-                    try:
-                        os.unlink(tmp_path)
-                    except Exception:
-                        pass
+                logger.warning(f"添加海报失败: {e}")
 
-        # 回退到纯文本
-        message_result.chain.append(Comp.Plain(msg))
+        # 3. 添加详情文本
+        message_result.chain.append(Comp.Plain("\n" + detail_msg))
         await event.send(message_result)
 
     def setup_scheduler(self):
@@ -236,28 +275,28 @@ class MyPlugin(Star):
         except Exception as e:
             logger.error(f"启动定时任务失败: {e}")
 
-    def render_daily_report_card(self, stats: dict, items: list, date_str: str) -> bytes:
-        """渲染每日入库日报卡片 - 现代风格（无 emoji）"""
+    def render_daily_report_card(self, stats: dict, items: list, date_str: str, free_space: str = "") -> bytes:
+        """渲染每日入库日报卡片 - 参照 MoviePilot 风格"""
         if not HAS_PILLOW:
             return None
 
         # 配置参数
-        padding = 30
-        font_size = 20
-        title_font_size = 28
-        small_font_size = 16
+        padding = 25
+        line_height = 28
+        font_size = 18
+        title_font_size = 22
+        small_font_size = 15
 
-        # 现代配色方案
-        bg_gradient_top = (30, 41, 59)      # 深蓝
-        bg_gradient_bottom = (15, 23, 42)   # 更深的蓝
-        accent_color = (56, 189, 248)       # 天蓝色
-        title_color = (255, 255, 255)       # 白色
-        text_color = (203, 213, 225)        # 浅灰
-        muted_color = (148, 163, 184)       # 灰色
-        card_bg = (51, 65, 85)              # 卡片背景
-        movie_color = (251, 191, 36)        # 电影 - 金色
-        series_color = (167, 139, 250)      # 剧集 - 紫色
-        episode_color = (74, 222, 128)      # 单集 - 绿色
+        # 配色方案 - 深色主题
+        bg_color = (18, 18, 18)              # 深黑背景
+        title_color = (255, 255, 255)        # 白色标题
+        text_color = (220, 220, 220)         # 浅灰文字
+        muted_color = (140, 140, 140)        # 灰色次要文字
+        accent_color = (100, 180, 255)       # 蓝色强调
+        green_color = (100, 200, 100)        # 绿色
+        blue_color = (100, 150, 255)         # 蓝色
+        purple_color = (180, 130, 255)       # 紫色
+        yellow_color = (255, 200, 80)        # 黄色
 
         # 加载字体
         font = None
@@ -287,109 +326,83 @@ class MyPlugin(Star):
             title_font = font
             small_font = font
 
-        # 计算尺寸
-        img_width = 400
-        header_height = 70
-        stats_height = 50
-        item_height = 28
-        items_to_show = min(len(items), 10)
-        items_section_height = items_to_show * item_height + 40 if items_to_show > 0 else 0
-        img_height = padding + header_height + stats_height + items_section_height + padding + 20
+        # 分类整理入库项目
+        movies = []
+        series = []
+        for item_str in items:
+            if item_str.startswith("[电影]"):
+                movies.append(item_str.replace("[电影] ", ""))
+            elif item_str.startswith("[剧集]"):
+                series.append(item_str.replace("[剧集] ", ""))
 
-        # 创建图片 - 渐变背景
-        img = Image.new('RGB', (img_width, img_height), bg_gradient_top)
+        # 计算图片高度
+        img_width = 420
+        current_y = padding
+
+        # 标题区域
+        header_height = 35
+        # 统计区域
+        stats_height = 100
+        # 电影区域
+        movies_height = (len(movies[:8]) * line_height + 40) if movies else 0
+        # 剧集区域
+        series_height = (len(series[:8]) * line_height + 40) if series else 0
+        # 底部区域
+        footer_height = 50
+
+        img_height = padding + header_height + stats_height + movies_height + series_height + footer_height + padding
+
+        # 创建图片
+        img = Image.new('RGB', (img_width, img_height), bg_color)
         draw = ImageDraw.Draw(img)
 
-        # 绘制渐变背景
-        for y in range(img_height):
-            ratio = y / img_height
-            r = int(bg_gradient_top[0] * (1 - ratio) + bg_gradient_bottom[0] * ratio)
-            g = int(bg_gradient_top[1] * (1 - ratio) + bg_gradient_bottom[1] * ratio)
-            b = int(bg_gradient_top[2] * (1 - ratio) + bg_gradient_bottom[2] * ratio)
-            draw.line([(0, y), (img_width, y)], fill=(r, g, b))
+        # 1. 标题行
+        draw.text((padding, current_y), f"📺 Emby 每日入库报告 | {date_str}", font=title_font, fill=title_color)
+        current_y += header_height + 15
 
-        # 绘制顶部装饰条
-        draw.rectangle([0, 0, img_width, 4], fill=accent_color)
+        # 2. 统计区域
+        draw.text((padding, current_y), "📊 统计:", font=font, fill=text_color)
+        current_y += line_height
 
-        # 绘制标题区域
-        current_y = padding
-        draw.text((padding, current_y), "Emby 今日入库日报", font=title_font, fill=title_color)
-        current_y += title_font_size + 5
-        draw.text((padding, current_y), date_str, font=small_font, fill=muted_color)
-        current_y += 35
-
-        # 绘制分隔线
-        draw.line([(padding, current_y), (img_width - padding, current_y)], fill=(71, 85, 105), width=1)
-        current_y += 15
-
-        # 绘制统计卡片区
         movie_count = stats.get("Movie", 0)
         series_count = stats.get("Series", 0)
         episode_count = stats.get("Episode", 0)
 
-        stat_items = []
-        if movie_count > 0:
-            stat_items.append(("电影", movie_count, "部", movie_color))
-        if series_count > 0:
-            stat_items.append(("剧集", series_count, "部", series_color))
-        if episode_count > 0:
-            stat_items.append(("单集", episode_count, "集", episode_color))
+        draw.text((padding, current_y), f"🟢 新增电影: {movie_count}", font=font, fill=green_color)
+        current_y += line_height
+        draw.text((padding, current_y), f"🔵 新增剧集: {series_count}", font=font, fill=blue_color)
+        current_y += line_height
+        if free_space:
+            draw.text((padding, current_y), f"💾 剩余空间: {free_space}", font=font, fill=muted_color)
+        current_y += line_height + 10
 
-        if stat_items:
-            stat_width = (img_width - padding * 2 - 10 * (len(stat_items) - 1)) // len(stat_items)
-            stat_x = padding
-            for label, count, unit, color in stat_items:
-                draw.rounded_rectangle(
-                    [stat_x, current_y, stat_x + stat_width, current_y + 40],
-                    radius=6,
-                    fill=card_bg
-                )
-                # 数字
-                count_text = str(count)
-                draw.text((stat_x + 12, current_y + 8), count_text, font=title_font, fill=color)
-                # 标签
-                label_text = f"{label} {unit}"
-                draw.text((stat_x + 50, current_y + 14), label_text, font=small_font, fill=muted_color)
-                stat_x += stat_width + 10
-            current_y += 55
+        # 3. 电影列表
+        if movies:
+            draw.text((padding, current_y), "🎬 电影 (Movies):", font=font, fill=yellow_color)
+            current_y += line_height
+            for movie in movies[:8]:
+                # 截断过长的名称
+                display_name = movie[:35] + "..." if len(movie) > 35 else movie
+                draw.text((padding, current_y), f"• {display_name}", font=small_font, fill=text_color)
+                current_y += line_height
+            current_y += 10
 
-        # 绘制入库详情
-        if items_to_show > 0:
-            draw.text((padding, current_y), "入库详情", font=font, fill=text_color)
-            current_y += 30
+        # 4. 剧集列表
+        if series:
+            draw.text((padding, current_y), "📺 剧集 (TV Shows):", font=font, fill=purple_color)
+            current_y += line_height
+            for show in series[:8]:
+                # 截断过长的名称
+                display_name = show[:35] + "..." if len(show) > 35 else show
+                draw.text((padding, current_y), f"• {display_name}", font=small_font, fill=text_color)
+                current_y += line_height
+            current_y += 10
 
-            for i, item_str in enumerate(items[:items_to_show]):
-                # 移除可能的 emoji 前缀
-                clean_item = item_str
-                for prefix in ["[电影] ", "[剧集] "]:
-                    if clean_item.startswith(prefix):
-                        clean_item = clean_item[len(prefix):]
-                        break
-
-                # 判断类型并添加标签
-                if item_str.startswith("[电影]"):
-                    tag_text = "电影"
-                    tag_color = movie_color
-                else:
-                    tag_text = "剧集"
-                    tag_color = series_color
-
-                # 绘制序号
-                draw.text((padding, current_y), f"{i+1}.", font=small_font, fill=muted_color)
-                # 绘制标签
-                draw.rounded_rectangle(
-                    [padding + 25, current_y, padding + 60, current_y + 20],
-                    radius=3,
-                    fill=tag_color
-                )
-                draw.text((padding + 28, current_y + 2), tag_text, font=small_font, fill=(30, 30, 30))
-                # 绘制名称
-                draw.text((padding + 70, current_y), clean_item[:20] + ("..." if len(clean_item) > 20 else ""), font=small_font, fill=text_color)
-                current_y += item_height
-
-            # 如果有更多
-            if len(items) > items_to_show:
-                draw.text((padding, current_y), f"...等共 {len(items)} 条记录", font=small_font, fill=muted_color)
+        # 5. 底部提示
+        current_y += 5
+        draw.text((padding, current_y), "👋 周末愉快，准备好爆米花了吗？", font=small_font, fill=muted_color)
+        current_y += line_height
+        draw.text((padding, current_y), "#Emby #DailyReport", font=small_font, fill=accent_color)
 
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
