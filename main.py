@@ -432,7 +432,7 @@ class MyPlugin(Star):
         # 标题区域
         header_height = line_height + 10
         # 统计区域
-        stats_height = line_height * 3 + 20
+        stats_height = line_height * 2 + 20
         # 电影区域
         movies_height = (len(movies[:8]) * line_height + line_height + 20) if movies else 0
         # 剧集区域
@@ -459,9 +459,6 @@ class MyPlugin(Star):
         draw.text((padding, current_y), f"新增电影: {movie_count} 部", font=font, fill=text_color)
         current_y += line_height
         draw.text((padding, current_y), f"新增剧集: {series_count} 部", font=font, fill=text_color)
-        current_y += line_height
-        if free_space:
-            draw.text((padding, current_y), f"剩余空间: {free_space}", font=font, fill=muted_color)
         current_y += line_height + padding
 
         # 3. 电影列表
