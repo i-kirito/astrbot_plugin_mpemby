@@ -174,45 +174,57 @@ class MyPlugin(Star):
 
     async def send_subscribe_result(self, event: AstrMessageEvent, media_info: dict,
                                      success_count: int = 0, failed_count: int = 0, is_movie: bool = False):
-        """发送订阅结果（渲染为图片，保证格式统一）"""
-        if not HAS_PILLOW:
-            # 回退到纯文本
-            title = media_info.get('title', '未知')
-            year = media_info.get('year', '')
-            media_type = media_info.get('type', '电影')
-            msg = f"✅ 订阅成功\n\n{title} ({year})\n类型：{media_type}"
-            await event.send(event.plain_result(msg))
-            return
-
-        try:
-            img_bytes = self.render_subscribe_card(media_info, success_count, failed_count, is_movie)
-            if img_bytes:
-                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
-                    f.write(img_bytes)
-                    tmp_path = f.name
-
-                message_result = event.make_result()
-                message_result.chain = [Comp.Image.fromFileSystem(tmp_path)]
-                await event.send(message_result)
-
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
-                return
-        except Exception as e:
-            logger.warning(f"订阅卡片渲染失败，使用文本模式: {e}")
-
-        # 回退到纯文本
+        """发送订阅结果（MoviePilot 风格：标题 + 海报 + 详情）"""
         title = media_info.get('title', '未知')
         year = media_info.get('year', '')
         media_type = media_info.get('type', '电影')
-        msg = f"✅ 订阅成功\n\n{title} ({year})\n类型：{media_type}"
+        vote_average = media_info.get('vote_average', 0)
+        overview = media_info.get('overview', '')
+        poster_path = media_info.get('poster_path', '')
+
+        # 标题行
+        title_line = f"🎬 订阅完成: {title}"
+
+        # 详情信息
+        detail_lines = []
+        if vote_average and vote_average > 0:
+            detail_lines.append(f"评分：  ⭐ {vote_average}")
+        if year:
+            detail_lines.append(f"年份：  {year}")
+        detail_lines.append(f"类型：  {media_type}")
+
+        # 剧集季数信息
         if not is_movie and success_count > 0:
-            msg += f"\n已订阅 {success_count} 季"
+            season_info = f"季数：  已订阅 {success_count} 季"
             if failed_count > 0:
-                msg += f"（{failed_count} 季已存在）"
-        await event.send(event.plain_result(msg))
+                season_info += f"（{failed_count} 季已存在）"
+            detail_lines.append(season_info)
+
+        # 简介（截取前100字符）
+        if overview:
+            overview_text = overview[:100] + "..." if len(overview) > 100 else overview
+            detail_lines.append(f"\n{overview_text}")
+
+        detail_msg = "\n".join(detail_lines)
+
+        message_result = event.make_result()
+        message_result.chain = []
+
+        # 1. 添加标题
+        message_result.chain.append(Comp.Plain(title_line + "\n"))
+
+        # 2. 添加海报图片（如果有）
+        if poster_path:
+            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+            try:
+                message_result.chain.append(Comp.Image.fromURL(poster_url))
+            except Exception as e:
+                logger.warning(f"添加海报失败: {e}")
+
+        # 3. 添加详情文本
+        message_result.chain.append(Comp.Plain("\n" + detail_msg))
+
+        await event.send(message_result)
 
     def setup_scheduler(self):
         """配置定时任务"""
