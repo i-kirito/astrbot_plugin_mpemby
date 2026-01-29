@@ -105,6 +105,7 @@ class MyPlugin(Star):
         # 加载字体（优先微软雅黑）
         font = None
         title_font = None
+        bold_font = None  # 黑体用于简介
         font_paths = [
             "C:\\Windows\\Fonts\\msyhbd.ttc",  # 微软雅黑粗体
             "C:\\Windows\\Fonts\\msyh.ttc",    # 微软雅黑
@@ -120,6 +121,15 @@ class MyPlugin(Star):
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "C:\\Windows\\Fonts\\simhei.ttf",
         ]
+        # 黑体路径（用于简介）
+        bold_font_paths = [
+            "C:\\Windows\\Fonts\\simhei.ttf",  # 黑体
+            "C:\\Windows\\Fonts\\msyhbd.ttc",  # 微软雅黑粗体
+            "/usr/share/fonts/truetype/simhei/simhei.ttf",
+            "/System/Library/Fonts/STHeiti Medium.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        ]
 
         for path in font_paths:
             try:
@@ -130,9 +140,20 @@ class MyPlugin(Star):
             except Exception:
                 continue
 
+        # 加载黑体（用于简介）
+        for path in bold_font_paths:
+            try:
+                if os.path.exists(path):
+                    bold_font = ImageFont.truetype(path, font_size)
+                    break
+            except Exception:
+                continue
+
         if not font:
             font = ImageFont.load_default()
             title_font = font
+        if not bold_font:
+            bold_font = font
 
         # 获取媒体信息
         title = media_info.get('title', '未知')
@@ -250,13 +271,13 @@ class MyPlugin(Star):
         draw.text((padding, current_y), info_line, font=font, fill=muted_color)
         current_y += line_height
 
-        # 渲染简介（四周有间距）
+        # 渲染简介（四周有间距，使用黑体）
         if overview_lines:
             current_y += padding  # 上间距
-            draw.text((padding + 10, current_y), "简介：", font=font, fill=text_color)
+            draw.text((padding + 10, current_y), "简介：", font=bold_font, fill=text_color)
             current_y += line_height
             for line in overview_lines:
-                draw.text((padding + 10, current_y), line, font=font, fill=muted_color)
+                draw.text((padding + 10, current_y), line, font=bold_font, fill=muted_color)
                 current_y += line_height - 2
             current_y += padding  # 下间距
 
