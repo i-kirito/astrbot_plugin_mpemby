@@ -87,28 +87,33 @@ class MyPlugin(Star):
             logger.error(f"保存白名单数据失败: {e}")
 
     def render_subscribe_card(self, media_info: dict, success_count: int = 0, failed_count: int = 0, is_movie: bool = False) -> bytes:
-        """渲染订阅成功卡片 - 纯白背景，海报+文字"""
+        """渲染订阅成功卡片 - 上方横图海报，下方文字信息"""
         if not HAS_PILLOW:
             return None
 
         # 配置参数
         padding = 20
-        font_size = 16
-        title_font_size = 18
-        line_height = 28
+        font_size = 20
+        title_font_size = 24
+        line_height = 32
 
         # 纯白背景，黑色文字
         bg_color = (255, 255, 255)
         text_color = (50, 50, 50)
+        muted_color = (120, 120, 120)
 
-        # 加载字体
+        # 加载字体（优先粗体）
         font = None
         title_font = None
         font_paths = [
-            "/System/Library/Fonts/STHeiti Light.ttc",
             "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/STHeiti Medium.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
             "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "C:\\Windows\\Fonts\\msyhbd.ttc",
             "C:\\Windows\\Fonts\\msyh.ttc",
             "C:\\Windows\\Fonts\\simhei.ttf",
         ]
@@ -132,89 +137,121 @@ class MyPlugin(Star):
         media_type = media_info.get('type', '电影')
         vote_average = media_info.get('vote_average', 0)
         overview = media_info.get('overview', '')
+        backdrop_path = media_info.get('backdrop_path', '')
         poster_path = media_info.get('poster_path', '')
 
-        # 尝试下载海报
+        # 图片宽度
+        img_width = 500
+        poster_height = 280
+
+        # 尝试下载横图（backdrop），如果没有则用竖版海报裁剪
         poster_img = None
-        poster_width = 160
-        poster_height = 240
-        if poster_path:
+        if backdrop_path:
             try:
-                poster_url = f"https://image.tmdb.org/t/p/w300{poster_path}"
+                poster_url = f"https://image.tmdb.org/t/p/w780{backdrop_path}"
                 import urllib.request
                 with urllib.request.urlopen(poster_url, timeout=10) as response:
                     poster_data = response.read()
                     poster_img = Image.open(io.BytesIO(poster_data))
-                    poster_img = poster_img.resize((poster_width, poster_height), Image.Resampling.LANCZOS)
+                    # 按宽度缩放，保持比例
+                    ratio = img_width / poster_img.width
+                    new_height = int(poster_img.height * ratio)
+                    poster_img = poster_img.resize((img_width, new_height), Image.Resampling.LANCZOS)
+                    poster_height = new_height
+            except Exception as e:
+                logger.warning(f"下载横图失败: {e}")
+                poster_img = None
+
+        # 如果没有横图，尝试竖版海报
+        if not poster_img and poster_path:
+            try:
+                poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+                import urllib.request
+                with urllib.request.urlopen(poster_url, timeout=10) as response:
+                    poster_data = response.read()
+                    poster_img = Image.open(io.BytesIO(poster_data))
+                    # 缩放到合适宽度
+                    ratio = img_width / poster_img.width
+                    new_height = int(poster_img.height * ratio)
+                    poster_img = poster_img.resize((img_width, new_height), Image.Resampling.LANCZOS)
+                    # 如果太高则裁剪
+                    if new_height > 400:
+                        poster_img = poster_img.crop((0, 0, img_width, 400))
+                        poster_height = 400
+                    else:
+                        poster_height = new_height
             except Exception as e:
                 logger.warning(f"下载海报失败: {e}")
                 poster_img = None
 
-        # 构建文本行
-        lines = []
-        lines.append("订阅成功")
-        lines.append("")
-        lines.append(f"标题：{title}")
+        # 构建文本内容
+        # 标题行
+        title_line = f"{title}"
         if year:
-            lines.append(f"年份：{year}")
-        lines.append(f"类型：{media_type}")
+            title_line += f" ({year})"
+        title_line += " 已完成订阅"
+
+        # 信息行
+        info_parts = []
         if vote_average and vote_average > 0:
-            lines.append(f"评分：{vote_average} 分")
+            info_parts.append(f"评分：{vote_average}")
+        info_parts.append(f"类型：{media_type}")
         if not is_movie and success_count > 0:
             season_info = f"已订阅 {success_count} 季"
             if failed_count > 0:
                 season_info += f"（{failed_count} 季已存在）"
-            lines.append(f"季数：{season_info}")
+            info_parts.append(season_info)
+        info_line = "  ".join(info_parts)
 
-        # 简介处理（放在海报下方，自动换行）
+        # 简介处理（自动换行）
         overview_lines = []
         if overview:
-            chars_per_line = 22  # 底部宽度较大，每行更多字符
-            overview_text = overview[:120]
+            chars_per_line = 24
+            overview_text = overview[:200]
             for i in range(0, len(overview_text), chars_per_line):
                 overview_lines.append(overview_text[i:i+chars_per_line])
-            if len(overview) > 120 and overview_lines:
+            if len(overview) > 200 and overview_lines:
                 overview_lines[-1] = overview_lines[-1][:chars_per_line-3] + "..."
 
-        # 计算图片尺寸
-        text_x = padding + poster_width + 15 if poster_img else padding
-        img_width = 420 if poster_img else 320
-
-        text_height = len(lines) * line_height
-
-        # 简介高度（在海报下方）
-        overview_height = 0
+        # 计算文字区域高度
+        text_area_height = padding + line_height  # 标题
+        text_area_height += line_height  # 信息行
         if overview_lines:
-            overview_height = line_height + len(overview_lines) * (line_height - 4) + 10
+            text_area_height += padding + line_height * len(overview_lines)
+        text_area_height += padding
 
-        content_height = max(poster_height, text_height) if poster_img else text_height
-        img_height = padding * 2 + content_height + overview_height
+        # 总高度
+        img_height = poster_height + text_area_height if poster_img else text_area_height + 50
 
-        # 创建纯白图片
+        # 创建图片
         img = Image.new('RGB', (img_width, img_height), bg_color)
         draw = ImageDraw.Draw(img)
 
-        # 粘贴海报
+        current_y = 0
+
+        # 粘贴海报（铺满上方）
         if poster_img:
-            img.paste(poster_img, (padding, padding))
+            img.paste(poster_img, (0, 0))
+            current_y = poster_height + padding
+        else:
+            current_y = padding
 
-        # 渲染文字
-        current_y = padding
-        for i, line in enumerate(lines):
-            if i == 0:
-                draw.text((text_x, current_y), line, font=title_font, fill=text_color)
-            else:
-                draw.text((text_x, current_y), line, font=font, fill=text_color)
-            current_y += line_height
+        # 渲染标题
+        draw.text((padding, current_y), title_line, font=title_font, fill=text_color)
+        current_y += line_height + 5
 
-        # 渲染简介（在海报下方，横跨整个宽度）
+        # 渲染信息行
+        draw.text((padding, current_y), info_line, font=font, fill=muted_color)
+        current_y += line_height
+
+        # 渲染简介
         if overview_lines:
-            overview_y = padding + poster_height + 10 if poster_img else current_y + 10
-            draw.text((padding, overview_y), "简介：", font=font, fill=text_color)
-            overview_y += line_height
+            current_y += 10
+            draw.text((padding, current_y), "简介：", font=font, fill=text_color)
+            current_y += line_height
             for line in overview_lines:
-                draw.text((padding, overview_y), line, font=font, fill=text_color)
-                overview_y += line_height - 4
+                draw.text((padding, current_y), line, font=font, fill=muted_color)
+                current_y += line_height - 2
 
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
