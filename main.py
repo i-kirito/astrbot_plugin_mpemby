@@ -136,8 +136,8 @@ class MyPlugin(Star):
 
         # 尝试下载海报
         poster_img = None
-        poster_width = 140
-        poster_height = 210
+        poster_width = 160
+        poster_height = 240
         if poster_path:
             try:
                 poster_url = f"https://image.tmdb.org/t/p/w300{poster_path}"
@@ -166,26 +166,29 @@ class MyPlugin(Star):
                 season_info += f"（{failed_count} 季已存在）"
             lines.append(f"季数：{season_info}")
 
-        # 简介处理
+        # 简介处理（放在海报下方，自动换行）
         overview_lines = []
         if overview:
-            chars_per_line = 12 if poster_img else 20
-            overview_text = overview[:80]
+            chars_per_line = 22  # 底部宽度较大，每行更多字符
+            overview_text = overview[:120]
             for i in range(0, len(overview_text), chars_per_line):
                 overview_lines.append(overview_text[i:i+chars_per_line])
-            if len(overview) > 80 and overview_lines:
+            if len(overview) > 120 and overview_lines:
                 overview_lines[-1] = overview_lines[-1][:chars_per_line-3] + "..."
 
         # 计算图片尺寸
         text_x = padding + poster_width + 15 if poster_img else padding
-        img_width = 380 if poster_img else 320
+        img_width = 420 if poster_img else 320
 
         text_height = len(lines) * line_height
+
+        # 简介高度（在海报下方）
+        overview_height = 0
         if overview_lines:
-            text_height += line_height + len(overview_lines) * (line_height - 6)
+            overview_height = line_height + len(overview_lines) * (line_height - 4) + 10
 
         content_height = max(poster_height, text_height) if poster_img else text_height
-        img_height = padding * 2 + content_height
+        img_height = padding * 2 + content_height + overview_height
 
         # 创建纯白图片
         img = Image.new('RGB', (img_width, img_height), bg_color)
@@ -204,13 +207,14 @@ class MyPlugin(Star):
                 draw.text((text_x, current_y), line, font=font, fill=text_color)
             current_y += line_height
 
-        # 渲染简介
+        # 渲染简介（在海报下方，横跨整个宽度）
         if overview_lines:
-            draw.text((text_x, current_y), "简介：", font=font, fill=text_color)
-            current_y += line_height
+            overview_y = padding + poster_height + 10 if poster_img else current_y + 10
+            draw.text((padding, overview_y), "简介：", font=font, fill=text_color)
+            overview_y += line_height
             for line in overview_lines:
-                draw.text((text_x, current_y), line, font=font, fill=text_color)
-                current_y += line_height - 6
+                draw.text((padding, overview_y), line, font=font, fill=text_color)
+                overview_y += line_height - 4
 
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
