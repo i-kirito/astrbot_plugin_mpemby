@@ -87,27 +87,27 @@ class MyPlugin(Star):
             logger.error(f"保存白名单数据失败: {e}")
 
     def render_subscribe_card(self, media_info: dict, success_count: int = 0, failed_count: int = 0, is_movie: bool = False) -> bytes:
-        """渲染订阅成功卡片 - MoviePilot 风格（标题+海报+详情）"""
+        """渲染订阅成功卡片 - 浅色日报风格（标题+海报+详情）"""
         if not HAS_PILLOW:
             return None
 
-        import aiohttp
-        import asyncio
-
         # 配置参数
-        padding = 25
-        font_size = 18
-        title_font_size = 22
-        small_font_size = 15
-        line_height = 28
+        padding = 20
+        font_size = 16
+        title_font_size = 20
+        small_font_size = 14
+        line_height = 26
 
-        # 配色方案 - 深色主题
-        bg_color = (25, 25, 30)              # 深色背景
-        title_color = (255, 255, 255)        # 白色标题
-        text_color = (220, 220, 220)         # 浅灰文字
-        muted_color = (140, 140, 140)        # 灰色次要文字
-        accent_color = (100, 200, 120)       # 绿色强调
-        star_color = (255, 200, 80)          # 星星颜色
+        # 配色方案 - 浅色主题（类似日报风格）
+        bg_color = (255, 250, 245)           # 暖白背景
+        card_bg = (255, 255, 255)            # 纯白卡片
+        title_color = (80, 80, 80)           # 深灰标题
+        text_color = (100, 100, 100)         # 灰色文字
+        muted_color = (150, 150, 150)        # 浅灰次要文字
+        accent_color = (255, 150, 180)       # 粉色强调（类似日报）
+        success_color = (120, 200, 120)      # 绿色成功
+        star_color = (255, 180, 80)          # 橙色星星
+        border_color = (240, 235, 230)       # 边框颜色
 
         # 加载字体
         font = None
@@ -147,8 +147,8 @@ class MyPlugin(Star):
 
         # 尝试下载海报
         poster_img = None
-        poster_width = 150
-        poster_height = 225
+        poster_width = 120
+        poster_height = 170
         if poster_path:
             try:
                 poster_url = f"https://image.tmdb.org/t/p/w300{poster_path}"
@@ -162,81 +162,94 @@ class MyPlugin(Star):
                 poster_img = None
 
         # 计算图片尺寸
-        img_width = 420
-        content_x = padding + poster_width + 20 if poster_img else padding
+        img_width = 380
+        content_start_x = padding + poster_width + 15 if poster_img else padding
 
-        # 计算内容高度
+        # 计算内容
         detail_lines = []
         if vote_average and vote_average > 0:
-            detail_lines.append(f"评分：⭐ {vote_average}")
+            detail_lines.append(("评分", f"⭐ {vote_average}", star_color))
         if year:
-            detail_lines.append(f"年份：{year}")
-        detail_lines.append(f"类型：{media_type}")
+            detail_lines.append(("年份", str(year), text_color))
+        detail_lines.append(("类型", media_type, text_color))
         if not is_movie and success_count > 0:
-            season_info = f"季数：已订阅 {success_count} 季"
+            season_info = f"已订阅 {success_count} 季"
             if failed_count > 0:
                 season_info += f"（{failed_count} 季已存在）"
-            detail_lines.append(season_info)
+            detail_lines.append(("季数", season_info, text_color))
 
-        # 简介处理（自动换行）
+        # 简介处理
         overview_lines = []
         if overview:
-            # 每行约 15 个字符（根据海报是否存在调整）
-            chars_per_line = 12 if poster_img else 28
-            overview_text = overview[:120]  # 最多 120 字符
+            chars_per_line = 10 if poster_img else 24
+            overview_text = overview[:80]
             for i in range(0, len(overview_text), chars_per_line):
                 overview_lines.append(overview_text[i:i+chars_per_line])
-            if len(overview) > 120:
-                overview_lines[-1] += "..."
+            if len(overview) > 80:
+                if overview_lines:
+                    overview_lines[-1] = overview_lines[-1][:chars_per_line-3] + "..."
 
         # 计算高度
-        title_height = 45
+        header_height = 50
         details_height = len(detail_lines) * line_height
-        overview_height = len(overview_lines) * (line_height - 4) + 15 if overview_lines else 0
-        content_height = title_height + details_height + overview_height
+        overview_height = len(overview_lines) * (line_height - 6) + 10 if overview_lines else 0
+        content_height = details_height + overview_height
 
-        img_height = max(poster_height + padding * 2 if poster_img else 200, content_height + padding * 2)
+        img_height = max(poster_height + padding * 2 + header_height, header_height + content_height + padding * 2) + 10
 
         # 创建图片
         img = Image.new('RGB', (img_width, img_height), bg_color)
         draw = ImageDraw.Draw(img)
 
-        # 左侧装饰条
-        draw.rectangle([0, 0, 5, img_height], fill=accent_color)
-
         current_y = padding
 
-        # 标题行
-        title_text = f"🎬 订阅完成: {title}"
-        # 截断过长标题
-        if len(title_text) > 22:
-            title_text = title_text[:20] + "..."
-        draw.text((padding + 10, current_y), title_text, font=title_font, fill=accent_color)
-        current_y += title_height
+        # 顶部装饰条
+        draw.rectangle([0, 0, img_width, 5], fill=accent_color)
 
-        # 海报区域
+        # 标题区域（带成功标识）
+        current_y = padding + 5
+        draw.text((padding, current_y), "✅ 订阅成功", font=title_font, fill=success_color)
+        current_y += 30
+
+        # 媒体标题
+        display_title = title if len(title) <= 18 else title[:16] + "..."
+        draw.text((padding, current_y), display_title, font=title_font, fill=title_color)
+        current_y += header_height - 25
+
+        # 内容区域背景（白色卡片）
+        card_y = current_y
+        card_height = max(poster_height + 10, content_height + 20)
+        draw.rounded_rectangle(
+            [padding - 5, card_y, img_width - padding + 5, card_y + card_height],
+            radius=8,
+            fill=card_bg,
+            outline=border_color
+        )
+
+        # 海报
         if poster_img:
-            img.paste(poster_img, (padding + 10, current_y))
-            info_x = padding + poster_width + 25
+            # 给海报加个圆角效果（通过遮罩）
+            poster_x = padding
+            poster_y = card_y + 5
+            img.paste(poster_img, (poster_x, poster_y))
+            info_x = padding + poster_width + 15
         else:
-            info_x = padding + 10
+            info_x = padding + 5
 
-        info_y = current_y
+        info_y = card_y + 10
 
         # 详情信息
-        for line in detail_lines:
-            if "评分" in line:
-                draw.text((info_x, info_y), line, font=font, fill=star_color)
-            else:
-                draw.text((info_x, info_y), line, font=font, fill=text_color)
+        for label, value, color in detail_lines:
+            draw.text((info_x, info_y), f"{label}：", font=small_font, fill=muted_color)
+            draw.text((info_x + 50, info_y), value, font=small_font, fill=color)
             info_y += line_height
 
         # 简介
         if overview_lines:
-            info_y += 10
+            info_y += 5
             for line in overview_lines:
                 draw.text((info_x, info_y), line, font=small_font, fill=muted_color)
-                info_y += line_height - 4
+                info_y += line_height - 6
 
         buffer = io.BytesIO()
         img.save(buffer, format='PNG', optimize=True)
