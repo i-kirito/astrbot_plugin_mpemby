@@ -136,8 +136,8 @@ class MyPlugin(Star):
 
         # 尝试下载海报
         poster_img = None
-        poster_width = 100
-        poster_height = 150
+        poster_width = 140
+        poster_height = 210
         if poster_path:
             try:
                 poster_url = f"https://image.tmdb.org/t/p/w300{poster_path}"
