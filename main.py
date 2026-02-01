@@ -1,7 +1,6 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
-from astrbot.api.all import *
 import time
 import asyncio
 import io
@@ -9,6 +8,7 @@ import base64
 import tempfile
 import os
 import json
+import aiohttp
 from datetime import datetime
 import astrbot.api.message_components as Comp
 from astrbot.core.utils.session_waiter import (
@@ -16,6 +16,18 @@ from astrbot.core.utils.session_waiter import (
     SessionController,
 )
 from .api import MoviepilotApi, EmbyApi
+
+
+async def async_download_image(url: str, timeout: int = 10) -> bytes | None:
+    """异步下载图片，避免阻塞事件循环"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
+                if response.status == 200:
+                    return await response.read()
+    except Exception as e:
+        logger.warning(f"异步下载图片失败: {e}")
+    return None
 
 # 尝试导入 Pillow
 try:
@@ -86,7 +98,7 @@ class MyPlugin(Star):
         except Exception as e:
             logger.error(f"保存白名单数据失败: {e}")
 
-    def render_subscribe_card(self, media_info: dict, success_count: int = 0, failed_count: int = 0, is_movie: bool = False) -> bytes:
+    async def render_subscribe_card(self, media_info: dict, success_count: int = 0, failed_count: int = 0, is_movie: bool = False) -> bytes:
         """渲染订阅成功卡片 - 上方横图海报，下方文字信息"""
         if not HAS_PILLOW:
             return None
@@ -173,9 +185,8 @@ class MyPlugin(Star):
         if backdrop_path:
             try:
                 poster_url = f"https://image.tmdb.org/t/p/w780{backdrop_path}"
-                import urllib.request
-                with urllib.request.urlopen(poster_url, timeout=10) as response:
-                    poster_data = response.read()
+                poster_data = await async_download_image(poster_url, timeout=10)
+                if poster_data:
                     poster_img = Image.open(io.BytesIO(poster_data))
                     # 按宽度缩放，保持比例
                     ratio = img_width / poster_img.width
@@ -190,9 +201,8 @@ class MyPlugin(Star):
         if not poster_img and poster_path:
             try:
                 poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-                import urllib.request
-                with urllib.request.urlopen(poster_url, timeout=10) as response:
-                    poster_data = response.read()
+                poster_data = await async_download_image(poster_url, timeout=10)
+                if poster_data:
                     poster_img = Image.open(io.BytesIO(poster_data))
                     # 缩放到合适宽度
                     ratio = img_width / poster_img.width
@@ -300,7 +310,7 @@ class MyPlugin(Star):
                                      success_count: int = 0, failed_count: int = 0, is_movie: bool = False):
         """发送订阅结果（渲染为图片：标题+海报+详情）"""
         try:
-            img_bytes = self.render_subscribe_card(media_info, success_count, failed_count, is_movie)
+            img_bytes = await self.render_subscribe_card(media_info, success_count, failed_count, is_movie)
             if img_bytes:
                 with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
                     f.write(img_bytes)
@@ -332,6 +342,15 @@ class MyPlugin(Star):
     def setup_scheduler(self):
         """配置定时任务"""
         try:
+            # 先关闭旧的 scheduler，防止泄漏和重复推送
+            if self.scheduler is not None:
+                try:
+                    self.scheduler.shutdown(wait=False)
+                    logger.info("已关闭旧的定时任务调度器")
+                except Exception:
+                    pass
+                self.scheduler = None
+
             report_time = self.config.get("report_time", "20:00")
             hour, minute = report_time.split(":")
 
@@ -339,7 +358,8 @@ class MyPlugin(Star):
             self.scheduler.add_job(
                 self.send_daily_report,
                 CronTrigger(hour=int(hour), minute=int(minute)),
-                id="daily_report"
+                id="daily_report",
+                replace_existing=True
             )
             self.scheduler.start()
             logger.info(f"已启动每日入库推送任务，时间: {report_time}")
@@ -801,7 +821,7 @@ class MyPlugin(Star):
         movies = await self.api.search_media_info(message)  # 使用 self.api 访问实例属性
         if movies:
             movie_list = "\n".join([f"{i + 1}. {movie['title']} ({movie['year']})" for i, movie in enumerate(movies)])
-            print(movie_list)
+            logger.debug(f"搜索结果: {movie_list}")
             media_list = "\n查询到的影片如下\n请直接回复序号进行订阅（回复0退出选择）：\n" + movie_list
 
             # 保存发起订阅的用户ID
