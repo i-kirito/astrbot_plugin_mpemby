@@ -555,7 +555,7 @@ class MyPlugin(Star):
         # 尝试渲染为图片发送
         if HAS_PILLOW:
             try:
-                img_bytes = self.render_daily_report_card(stats, items, date_str)
+                img_bytes = await asyncio.to_thread(self.render_daily_report_card, stats, items, date_str)
                 if img_bytes:
                     # 保存到临时文件
                     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
